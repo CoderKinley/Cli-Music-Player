@@ -5,9 +5,27 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AssemblyName>musik</AssemblyName>
+    <RootNamespace>KMusicPlayer</RootNamespace>
+    <Product>Musik</Product>
+    <Description>A keyboard-driven YouTube music player for the Windows terminal.</Description>
+    <Authors>CoderKiLe</Authors>
+    <Company>CoderKiLe</Company>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AngleSharp" Version="1.5.2" />
+    <PackageReference Include="Velopack" Version="1.2.0" />
     <PackageReference Include="YoutubeExplode" Version="6.6.0" />
   </ItemGroup>
 

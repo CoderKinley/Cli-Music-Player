@@ -47,7 +47,7 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = "mpv",
+            FileName = ResolveMpvExecutable(),
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardError = true,
@@ -221,5 +221,11 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
     {
         Stop();
         _childProcesses.Dispose();
+    }
+
+    private static string ResolveMpvExecutable()
+    {
+        var bundled = Path.Combine(AppContext.BaseDirectory, "tools", "mpv.exe");
+        return File.Exists(bundled) ? bundled : "mpv";
     }
 }

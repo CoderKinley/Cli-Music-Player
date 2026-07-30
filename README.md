@@ -13,7 +13,23 @@ A keyboard-driven YouTube music player for the Windows terminal.
 - Spotify and SoundCloud terminal themes
 - Responsive, low-flicker terminal layout
 
-## Requirements
+## Install
+
+Download `Musik-Setup.exe` from the
+[latest GitHub release](https://github.com/CoderKiLe/KMusiKPlayer-Cli/releases/latest).
+After installation, open a new terminal and run:
+
+```powershell
+musik
+```
+
+Check for and install updates with:
+
+```powershell
+musik update
+```
+
+## Source requirements
 
 - Windows
 - .NET 10 SDK when running from source
@@ -46,6 +62,16 @@ dotnet run --project .\KMusicPlayer
 dotnet build .\KMusicPlayer.slnx -c Release
 ```
 
+## Release build
+
+```powershell
+choco install mpvio.install --version 0.41.0 -y
+.\build\release.ps1 -Version 1.0.0
+```
+
+See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for bundled component
+licenses and source information.
+
 ## License
 
-License information will be added before the first packaged release.
+Copyright (c) 2026 CoderKiLe. All rights reserved.

@@ -3,6 +3,7 @@
 [Oo]bj/
 [Aa]rtifacts/
 [Pp]ublish/
+.tools/
 
 # Visual Studio
 .vs/
