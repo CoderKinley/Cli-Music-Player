@@ -76,6 +76,7 @@ choco install mpvio.install --version 0.41.0 -y
 
 <img width="787" height="440" alt="image" src="https://github.com/user-attachments/assets/2972d51b-a945-4260-84be-781fb8d90f31" />
 
+<img width="807" height="445" alt="image" src="https://github.com/user-attachments/assets/abd59153-bff3-4f00-bf73-edc4aafff3b9" />
 
 See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for bundled component
 licenses and source information.
