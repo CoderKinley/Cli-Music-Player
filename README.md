@@ -69,6 +69,14 @@ choco install mpvio.install --version 0.41.0 -y
 .\build\release.ps1 -Version 1.1.0
 ```
 
+## Working Images
+<img width="803" height="443" alt="image" src="https://github.com/user-attachments/assets/ad3a5365-23c0-40e8-8db2-7a86cf6125ed" />
+
+<img width="788" height="440" alt="image" src="https://github.com/user-attachments/assets/bd49658b-0689-47d9-b786-b3e76a8b2d71" />
+
+<img width="787" height="440" alt="image" src="https://github.com/user-attachments/assets/2972d51b-a945-4260-84be-781fb8d90f31" />
+
+
 See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for bundled component
 licenses and source information.
 
