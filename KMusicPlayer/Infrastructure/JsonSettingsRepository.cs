@@ -23,7 +23,7 @@ public sealed class JsonSettingsRepository : ISettingsRepository
             new PlayerSettings(
                 Math.Clamp(volume, 0, 100),
                 current?.Shuffle ?? false,
-                current?.Theme ?? "Spotify"),
+                current?.Theme ?? "Blue"),
             cancellationToken);
     }
 
@@ -34,12 +34,12 @@ public sealed class JsonSettingsRepository : ISettingsRepository
     {
         var current = await LoadAsync(cancellationToken);
         await SaveAsync(
-            new PlayerSettings(current?.Volume ?? 70, enabled, current?.Theme ?? "Spotify"),
+            new PlayerSettings(current?.Volume ?? 70, enabled, current?.Theme ?? "Blue"),
             cancellationToken);
     }
 
     public async Task<string> GetThemeAsync(CancellationToken cancellationToken = default) =>
-        (await LoadAsync(cancellationToken))?.Theme ?? "Spotify";
+        (await LoadAsync(cancellationToken))?.Theme ?? "Blue";
 
     public async Task SaveThemeAsync(string theme, CancellationToken cancellationToken = default)
     {
@@ -75,5 +75,5 @@ public sealed class JsonSettingsRepository : ISettingsRepository
     private sealed record PlayerSettings(
         int Volume,
         bool Shuffle = false,
-        string Theme = "Spotify");
+        string Theme = "Blue");
 }

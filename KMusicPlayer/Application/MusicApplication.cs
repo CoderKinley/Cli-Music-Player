@@ -36,7 +36,7 @@ public sealed class MusicApplication
     public IReadOnlyList<Track> RecentlyPlayed => _recentlyPlayed;
     public PlaybackSession? PreviousSession { get; private set; }
     public bool ShuffleEnabled { get; private set; }
-    public string ThemeName { get; private set; } = "Spotify";
+    public string ThemeName { get; private set; } = "Blue";
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {

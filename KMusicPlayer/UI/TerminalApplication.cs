@@ -390,7 +390,10 @@ public sealed class TerminalApplication
         var contentHeight = playerY - contentTop;
         var halfHeight = Math.Max(6, contentHeight / 2);
         DrawBox(0, 0, width, 3, "");
-        WriteCentered(1, "M U S I K P L A Y E R", ConsoleColor.Cyan);
+        WriteCenteredMixed(1,
+            ("M U S I ", ConsoleColor.White),
+            ("K . P", ConsoleColor.Cyan),
+            (" L A Y E R", ConsoleColor.White));
 
         DrawBox(0, contentTop, leftWidth, contentHeight, " QUICK LINKS ");
 
@@ -828,6 +831,19 @@ public sealed class TerminalApplication
             selected ? ConsoleColor.Black : ConsoleColor.Gray,
             selected ? ConsoleColor.Cyan : ConsoleColor.Black);
 
+    private static void WriteCenteredMixed(
+        int row,
+        params (string text, ConsoleColor color)[] segments)
+    {
+        var fullTextLength = segments.Sum(segment => segment.text.Length);
+        var column = Math.Max(0, (Width() - fullTextLength) / 2);
+        foreach (var (text, color) in segments)
+        {
+            WriteAt(column, row, text, color);
+            column += text.Length;
+        }
+    }
+
     private static void WriteCentered(int y, string text, ConsoleColor color) =>
         WriteAt(Math.Max(0, (Width() - text.Length) / 2), y, text, color);
 
@@ -836,17 +852,8 @@ public sealed class TerminalApplication
         int y,
         string text,
         ConsoleColor foreground,
-        ConsoleColor background = ConsoleColor.Black)
-    {
-        if (y < 0 || y >= Console.WindowHeight || x >= Console.WindowWidth)
-            return;
-        x = Math.Max(0, x);
-        Console.SetCursorPosition(x, y);
-        Console.ForegroundColor = foreground;
-        Console.BackgroundColor = background;
-        Console.Write(Fit(text, Console.WindowWidth - x));
-        Console.ResetColor();
-    }
+        ConsoleColor background = ConsoleColor.Black) =>
+        TerminalCanvas.WriteAt(x, y, text, foreground, background);
 
     private static string FormatTime(TimeSpan value) =>
         value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : value.ToString(@"m\:ss");

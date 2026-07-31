@@ -1,5 +1,7 @@
 namespace KMusicPlayer.UI.Screens;
 
+using KMusicPlayer.UI.Themes;
+
 public static class SearchInput
 {
     public static string? Read()
@@ -35,7 +37,7 @@ public static class SearchInput
                 if (inputChanged)
                 {
                     Console.SetCursorPosition(10, 3);
-                    Console.ForegroundColor = ConsoleColor.White;
+                    Console.ForegroundColor = ThemeManager.Map(ConsoleColor.White);
                     Console.Write(TerminalCanvas.Fit(input.ToString(), maxWidth).PadRight(maxWidth));
                     Console.SetCursorPosition(
                         10 + Math.Min(input.Length, Math.Max(0, maxWidth - 1)),

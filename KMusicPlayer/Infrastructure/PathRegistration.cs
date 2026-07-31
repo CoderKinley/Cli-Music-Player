@@ -37,7 +37,7 @@ public static class PathRegistration
         var entries = current
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(entry => !PathsEqual(entry, commandDirectory))
-            // Remove the v1.0.0 launcher entry while upgrading or uninstalling.
+            // Remove the legacy launcher entry while upgrading or uninstalling.
             .Where(entry => launcherDirectory is null || !PathsEqual(entry, launcherDirectory))
             .ToList();
 
