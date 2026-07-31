@@ -6,7 +6,7 @@ namespace KMusicPlayer.Infrastructure;
 public static class ApplicationUpdater
 {
     private const string RepositoryUrl =
-        "https://github.com/CoderKiLe/KMusiKPlayer-Cli";
+        "https://github.com/CoderKinley/Cli-Music-Player";
 
     public static async Task<int> RunAsync()
     {

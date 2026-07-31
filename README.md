@@ -1,4 +1,4 @@
-# KMusiKPlayer CLI
+# Cli Music Player
 
 A keyboard-driven YouTube music player for the Windows terminal.
 
@@ -16,7 +16,7 @@ A keyboard-driven YouTube music player for the Windows terminal.
 ## Install
 
 Download `Musik-Setup.exe` from the
-[latest GitHub release](https://github.com/CoderKiLe/KMusiKPlayer-Cli/releases/latest).
+[latest GitHub release](https://github.com/CoderKinley/Cli-Music-Player/releases/latest).
 After installation, open a new terminal and run:
 
 ```powershell
@@ -66,7 +66,7 @@ dotnet build .\KMusicPlayer.slnx -c Release
 
 ```powershell
 choco install mpvio.install --version 0.41.0 -y
-.\build\release.ps1 -Version 1.0.2
+.\build\release.ps1 -Version 1.0.0
 ```
 
 See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for bundled component
