@@ -14,6 +14,7 @@ internal static class Program
         {
             velopack
                 .OnAfterInstallFastCallback(_ => PathRegistration.AddInstallDirectory())
+                .OnAfterUpdateFastCallback(_ => PathRegistration.AddInstallDirectory())
                 .OnBeforeUninstallFastCallback(_ => PathRegistration.RemoveInstallDirectory());
         }
         velopack.Run();
@@ -32,7 +33,7 @@ internal static class Program
         if (args.Length > 0 &&
             args[0].Equals("--version", StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine("Musik 1.0.0");
+            Console.WriteLine($"Musik {typeof(Program).Assembly.GetName().Version?.ToString(3)}");
             return;
         }
 

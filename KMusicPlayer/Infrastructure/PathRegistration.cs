@@ -17,11 +17,15 @@ public static class PathRegistration
         if (!OperatingSystem.IsWindows())
             return;
 
-        var installDirectory = Directory.GetParent(
-            AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar))?.FullName;
-        if (string.IsNullOrWhiteSpace(installDirectory))
+        var commandDirectory = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+        if (string.IsNullOrWhiteSpace(commandDirectory))
             return;
 
+        // Velopack places a launcher in the parent directory and the real console
+        // executable in "current". Invoking the launcher detaches the application
+        // and creates another terminal window. Adding "current" to PATH executes
+        // musik.exe directly, keeping it attached to the caller's console.
+        var launcherDirectory = Directory.GetParent(commandDirectory)?.FullName;
         using var environment = Registry.CurrentUser.OpenSubKey("Environment", writable: true);
         if (environment is null)
             return;
@@ -32,14 +36,13 @@ public static class PathRegistration
             RegistryValueOptions.DoNotExpandEnvironmentNames)?.ToString() ?? string.Empty;
         var entries = current
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(entry => !string.Equals(
-                entry.TrimEnd('\\'),
-                installDirectory.TrimEnd('\\'),
-                StringComparison.OrdinalIgnoreCase))
+            .Where(entry => !PathsEqual(entry, commandDirectory))
+            // Remove the v1.0.0 launcher entry while upgrading or uninstalling.
+            .Where(entry => launcherDirectory is null || !PathsEqual(entry, launcherDirectory))
             .ToList();
 
         if (add)
-            entries.Add(installDirectory);
+            entries.Add(commandDirectory);
 
         environment.SetValue("Path", string.Join(';', entries), RegistryValueKind.ExpandString);
         SendMessageTimeout(
@@ -51,6 +54,12 @@ public static class PathRegistration
             5000,
             out _);
     }
+
+    private static bool PathsEqual(string left, string right) =>
+        string.Equals(
+            left.TrimEnd('\\', '/'),
+            right.TrimEnd('\\', '/'),
+            StringComparison.OrdinalIgnoreCase);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr SendMessageTimeout(
