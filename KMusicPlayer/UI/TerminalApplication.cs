@@ -12,10 +12,22 @@ public sealed class TerminalApplication
     private readonly MusicApplication _app;
     private readonly PlaybackQueueController _playbackQueue;
     private readonly SearchScreen _searchScreen;
+    private readonly PlaylistScreen _playlistScreen;
     private readonly ThemesScreen _themesScreen;
+    private readonly LyricsScreen _lyricsScreen;
+    private readonly ITrackDownloadService _downloads;
+    private readonly ILocalMusicLibrary _localLibrary;
+    private readonly ISettingsTransferService _settingsTransfer;
+    private bool _importedSettings;
     private string _status = "Ready";
 
-    public TerminalApplication(MusicApplication app)
+    public TerminalApplication(
+        MusicApplication app,
+        ILyricsService lyrics,
+        ITrackDownloadService downloads,
+        ILocalMusicLibrary localLibrary,
+        ISettingsTransferService settingsTransfer,
+        IPlaylistRepository playlists)
     {
         _app = app;
         _playbackQueue = new PlaybackQueueController(app);
@@ -26,7 +38,16 @@ public sealed class TerminalApplication
             app,
             (title, tracks) => BrowseTracksAsync(title, tracks, false, collapsible: true),
             status => _status = status);
+        _playlistScreen = new PlaylistScreen(
+            app,
+            playlists,
+            (title, tracks) => BrowseTracksAsync(title, tracks, false, loopQueue: true),
+            status => _status = status);
         _themesScreen = new ThemesScreen(app);
+        _lyricsScreen = new LyricsScreen(lyrics);
+        _downloads = downloads;
+        _localLibrary = localLibrary;
+        _settingsTransfer = settingsTransfer;
         if (app.PreviousSession is not null)
             _status = "Previous session ready - press Space to resume";
     }
@@ -39,24 +60,34 @@ public sealed class TerminalApplication
             while (true)
             {
                 var selected = await ShowDashboardAsync();
-                if (selected is -1 or 4)
+                if (selected is -1 or 7)
                     return;
 
                 if (selected == 0)
                     await _searchScreen.ShowAsync();
                 else if (selected == 1)
-                    await ShowFavoritesAsync();
+                    await _playlistScreen.ShowAsync();
                 else if (selected == 2)
-                    await BrowseTracksAsync("RECENTLY PLAYED", _app.RecentlyPlayed, false, loopQueue: true);
+                    await ShowFavoritesAsync();
                 else if (selected == 3)
+                    await BrowseTracksAsync("RECENTLY PLAYED", _app.RecentlyPlayed, false, loopQueue: true);
+                else if (selected == 4)
                     await _themesScreen.ShowAsync();
+                else if (selected == 5)
+                    await ShowLocalMusicAsync();
+                else if (selected == 6)
+                    await ShowSettingsTransferAsync();
+
+                if (_importedSettings)
+                    return;
             }
         }
         finally
         {
             try
             {
-                await _app.SavePlaybackSessionAsync();
+                if (!_importedSettings)
+                    await _app.SavePlaybackSessionAsync();
             }
             catch
             {
@@ -75,7 +106,11 @@ public sealed class TerminalApplication
         var linkSelection = 0;
         var recentSelection = 0;
         var favoriteSelection = 0;
-        var links = new[] { "Search", "Favorites", "Recently Played", "Themes", "Quit" };
+        var links = new[]
+        {
+            "Search", "Playlists", "Favorites", "Recently Played", "Themes",
+            "Local Music", "Backup & Restore", "Quit"
+        };
         var renderedWidth = -1;
         var renderedHeight = -1;
         var contentDirty = false;
@@ -112,7 +147,8 @@ public sealed class TerminalApplication
                     links, currentPanel, currentLink, currentRecent, currentFavorite, favorites),
                 ref renderedWidth,
                 ref renderedHeight,
-                HasFinishedTrack);
+                HasFinishedTrack,
+                () => DrawNowPlaying(Math.Max(17, Height() - 8), Width()));
 
             switch (key.Key)
             {
@@ -159,6 +195,31 @@ public sealed class TerminalApplication
                 case TerminalKeys.Pause:
                     await ResumeOrTogglePauseAsync();
                     contentDirty = true;
+                    break;
+                case TerminalKeys.Lyrics:
+                    var dashboardLyricsTrack = panel switch
+                    {
+                        HomePanel.RecentlyPlayed when _app.RecentlyPlayed.Count > 0 =>
+                            _app.RecentlyPlayed[recentSelection],
+                        HomePanel.RecentFavorites when favorites.Count > 0 => favorites[favoriteSelection],
+                        _ => _app.CurrentTrack
+                    };
+                    if (dashboardLyricsTrack is not null)
+                        await _lyricsScreen.ShowAsync(dashboardLyricsTrack);
+                    else
+                        _status = "Select or play a track before opening lyrics";
+                    renderedWidth = -1;
+                    break;
+                case TerminalKeys.Download:
+                    var dashboardDownloadTrack = panel switch
+                    {
+                        HomePanel.RecentlyPlayed when _app.RecentlyPlayed.Count > 0 =>
+                            _app.RecentlyPlayed[recentSelection],
+                        HomePanel.RecentFavorites when favorites.Count > 0 => favorites[favoriteSelection],
+                        _ => _app.CurrentTrack
+                    };
+                    await DownloadTrackAsync(dashboardDownloadTrack);
+                    renderedWidth = -1;
                     break;
                 case ConsoleKey.Oem2:
                     return 0;
@@ -239,6 +300,179 @@ public sealed class TerminalApplication
         }
     }
 
+    private async Task ShowSettingsTransferAsync()
+    {
+        var selected = 0;
+        var options = new[] { "Export all settings", "Import settings", "Back" };
+        while (true)
+        {
+            Clear();
+            DrawBox(0, 0, Width(), 11, " BACKUP & RESTORE ");
+            WriteAt(2, 2,
+                "Includes favorites, recents, player settings, session, lyrics, and local folder.",
+                ConsoleColor.DarkGray);
+            for (var index = 0; index < options.Length; index++)
+                WriteMenuItem(2, 4 + index, Math.Min(36, Width() - 4), options[index], index == selected);
+            WriteAt(2, 8, "Import creates a safety backup and then closes Musik.", ConsoleColor.DarkGray);
+
+            switch (Console.ReadKey(intercept: true).Key)
+            {
+                case ConsoleKey.UpArrow:
+                    selected = Previous(selected, options.Length);
+                    break;
+                case ConsoleKey.DownArrow:
+                    selected = Next(selected, options.Length);
+                    break;
+                case ConsoleKey.Enter when selected == 0:
+                    await ExportSettingsAsync();
+                    break;
+                case ConsoleKey.Enter when selected == 1:
+                    if (await ImportSettingsAsync())
+                        return;
+                    break;
+                case ConsoleKey.Enter when selected == 2:
+                case ConsoleKey.Q:
+                case ConsoleKey.Escape:
+                    return;
+            }
+        }
+    }
+
+    private async Task ExportSettingsAsync()
+    {
+        try
+        {
+            // Checkpoint the live session before reading the JSON files.
+            await _app.SavePlaybackSessionAsync();
+            var path = await _settingsTransfer.ExportAsync();
+            Notice($"Settings exported to {path}");
+        }
+        catch (Exception exception)
+        {
+            Notice($"Export failed: {exception.Message}");
+        }
+    }
+
+    private async Task<bool> ImportSettingsAsync()
+    {
+        Clear();
+        Console.CursorVisible = true;
+        try
+        {
+            Console.WriteLine("IMPORT MUSIK SETTINGS");
+            Console.WriteLine("Paste the exported .json file path, then press Enter. Leave blank to cancel.");
+            Console.Write("Backup file: ");
+            var path = Console.ReadLine();
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            Console.Write("Type IMPORT to replace the current settings: ");
+            var confirmation = Console.ReadLine();
+            if (!string.Equals(confirmation, "IMPORT", StringComparison.Ordinal))
+                return false;
+
+            await _settingsTransfer.ImportAsync(path);
+            _importedSettings = true;
+            Console.WriteLine();
+            Console.WriteLine("Import complete. Musik will close; reopen it to load the restored settings.");
+            Console.WriteLine("Press any key to continue.");
+            Console.ReadKey(intercept: true);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Notice($"Import failed: {exception.Message}");
+            return false;
+        }
+        finally
+        {
+            Console.CursorVisible = false;
+        }
+    }
+
+    private async Task ShowLocalMusicAsync()
+    {
+        var selected = 0;
+        var options = new[] { "Browse library", "Change music folder", "Back" };
+        while (true)
+        {
+            DrawLocalMusicMenu(options, selected);
+            switch (Console.ReadKey(intercept: true).Key)
+            {
+                case ConsoleKey.UpArrow:
+                    selected = Previous(selected, options.Length);
+                    break;
+                case ConsoleKey.DownArrow:
+                    selected = Next(selected, options.Length);
+                    break;
+                case ConsoleKey.Enter when selected == 0:
+                    IReadOnlyList<Track> tracks;
+                    try
+                    {
+                        tracks = await _localLibrary.ScanAsync();
+                    }
+                    catch (Exception exception)
+                    {
+                        _status = $"Could not scan local music: {exception.Message}";
+                        tracks = [];
+                    }
+                    if (tracks.Count == 0)
+                    {
+                        Notice($"No supported audio files found in {_localLibrary.DirectoryPath}");
+                        break;
+                    }
+                    await BrowseTracksAsync("LOCAL MUSIC", tracks, false, loopQueue: true);
+                    break;
+                case ConsoleKey.Enter when selected == 1:
+                    await ChangeLocalMusicDirectoryAsync();
+                    break;
+                case ConsoleKey.Enter when selected == 2:
+                case ConsoleKey.Q:
+                case ConsoleKey.Escape:
+                    return;
+            }
+        }
+    }
+
+    private void DrawLocalMusicMenu(IReadOnlyList<string> options, int selected)
+    {
+        Clear();
+        DrawBox(0, 0, Width(), 10, " LOCAL MUSIC ");
+        WriteAt(2, 2, Fit($"Folder: {_localLibrary.DirectoryPath}", Width() - 4), ConsoleColor.DarkGray);
+        WriteAt(2, 3, "Supports MP3, M4A, WebM, FLAC, WAV, OGG, Opus, and AAC", ConsoleColor.DarkGray);
+        for (var index = 0; index < options.Count; index++)
+            WriteMenuItem(2, 5 + index, Math.Min(32, Width() - 4), options[index], index == selected);
+    }
+
+    private async Task ChangeLocalMusicDirectoryAsync()
+    {
+        Clear();
+        Console.CursorVisible = true;
+        try
+        {
+            Console.WriteLine("LOCAL MUSIC FOLDER");
+            Console.WriteLine("Paste or type a folder path, then press Enter. Leave blank to cancel.");
+            Console.Write("Folder: ");
+            var path = Console.ReadLine();
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+            try
+            {
+                await _localLibrary.SetDirectoryAsync(path);
+                _status = $"Local music folder changed to {_localLibrary.DirectoryPath}";
+            }
+            catch (Exception exception)
+            {
+                _status = $"Could not change music folder: {exception.Message}";
+                Notice(_status);
+            }
+        }
+        finally
+        {
+            Console.CursorVisible = false;
+        }
+    }
+
     private async Task<bool> BrowseTracksAsync(
         string title,
         IReadOnlyList<Track> tracks,
@@ -290,7 +524,8 @@ public sealed class TerminalApplication
                     collapsible),
                 ref renderedWidth,
                 ref renderedHeight,
-                HasFinishedTrack);
+                HasFinishedTrack,
+                () => DrawNowPlaying(Math.Max(10, Height() - 7), Width()));
             switch (key.Key)
             {
                 case ConsoleKey.UpArrow:
@@ -308,6 +543,18 @@ public sealed class TerminalApplication
                 case TerminalKeys.Pause:
                     await ResumeOrTogglePauseAsync();
                     contentDirty = true;
+                    break;
+                case TerminalKeys.Lyrics:
+                    await _lyricsScreen.ShowAsync(visibleTracks[selected]);
+                    renderedWidth = -1;
+                    break;
+                case TerminalKeys.Download:
+                    await DownloadTrackAsync(visibleTracks[selected]);
+                    renderedWidth = -1;
+                    break;
+                case TerminalKeys.AddToPlaylist:
+                    await _playlistScreen.AddTrackAsync(visibleTracks[selected]);
+                    renderedWidth = -1;
                     break;
                 case TerminalKeys.Favorite:
                     var selectedTrack = visibleTracks[selected];
@@ -448,7 +695,7 @@ public sealed class TerminalApplication
         WriteAt(
             2,
             playerY + 5,
-            $"Play: Enter   Previous/Next: P/N   Pause: Space   Seek: ,/.   Shuffle: R [{(_playbackQueue.Shuffle ? "ON" : "OFF")}]"
+            $"Play: Enter   Lyrics: L   Download: D   P/N: Previous/Next   Pause: Space   Shuffle: R [{(_playbackQueue.Shuffle ? "ON" : "OFF")}]"
                 .PadRight(Math.Max(1, width - 4)),
             ConsoleColor.DarkGray);
         DrawVolumeControl(Math.Min(height - 2, playerY + 6), width);
@@ -544,7 +791,7 @@ public sealed class TerminalApplication
         var favoriteHint = removeOnDelete ? "F/Delete: Remove" : "F: Favorite";
         var expandHint = collapsible ? "   E: Expand/Collapse" : "";
         WriteAt(2, Math.Min(height - 1, listBottom + 5),
-            $"Arrows: Navigate   Enter: Play   P/N: Previous/Next   Space: Pause   " +
+            $"Arrows: Navigate   Enter: Play   A: Playlist   L: Lyrics   D: Download   P/N: Previous/Next   " +
             $"{favoriteHint}{expandHint}   R: Shuffle [{(_playbackQueue.Shuffle ? "ON" : "OFF")}]   Q: Home",
             ConsoleColor.DarkGray);
     }
@@ -742,6 +989,41 @@ public sealed class TerminalApplication
         }
     }
 
+    private async Task DownloadTrackAsync(Track? track)
+    {
+        if (track is null)
+        {
+            _status = "Select or play a track before downloading";
+            return;
+        }
+        if (track.IsLocal)
+        {
+            _status = "This track is already stored locally";
+            return;
+        }
+
+        Clear();
+        DrawBox(0, 0, Width(), 7, " DOWNLOAD ");
+        WriteAt(2, 2, Fit($"Downloading: {track.Title} - {track.Artist}", Width() - 4), ConsoleColor.Cyan);
+        var progress = new InlineProgress(value =>
+        {
+            var percent = Math.Clamp((int)Math.Round(value * 100), 0, 100);
+            WriteAt(2, 4, $"Progress: {percent,3}%".PadRight(20), ConsoleColor.Gray);
+        });
+
+        try
+        {
+            var result = await _downloads.DownloadAsync(track, progress);
+            _status = result.AlreadyExisted
+                ? $"Already downloaded: {Path.GetFileName(result.FilePath)}"
+                : $"Downloaded: {Path.GetFileName(result.FilePath)}";
+        }
+        catch (Exception exception)
+        {
+            _status = $"Download failed: {exception.Message}";
+        }
+    }
+
     private async Task<IReadOnlyList<Track>> SafeFavoritesAsync()
     {
         try
@@ -875,5 +1157,10 @@ public sealed class TerminalApplication
         QuickLinks,
         RecentlyPlayed,
         RecentFavorites
+    }
+
+    private sealed class InlineProgress(Action<double> report) : IProgress<double>
+    {
+        public void Report(double value) => report(value);
     }
 }

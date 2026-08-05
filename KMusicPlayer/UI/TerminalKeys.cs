@@ -13,6 +13,9 @@ public static class TerminalKeys
     public const ConsoleKey Stop = ConsoleKey.S;
     public const ConsoleKey Home = ConsoleKey.Q;
     public const ConsoleKey Expand = ConsoleKey.E;
+    public const ConsoleKey Lyrics = ConsoleKey.L;
+    public const ConsoleKey Download = ConsoleKey.D;
+    public const ConsoleKey AddToPlaylist = ConsoleKey.A;
     public const ConsoleKey Rewind = ConsoleKey.OemComma;
     public const ConsoleKey FastForward = ConsoleKey.OemPeriod;
 }

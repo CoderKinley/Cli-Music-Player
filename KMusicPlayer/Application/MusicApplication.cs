@@ -54,6 +54,11 @@ public sealed class MusicApplication
         CancellationToken cancellationToken = default) =>
         _musicSource.SearchAsync(query, limit, cancellationToken);
 
+    public Task<PlaylistResult> GetPlaylistAsync(
+        string playlistUrl,
+        CancellationToken cancellationToken = default) =>
+        _musicSource.GetPlaylistAsync(playlistUrl, cancellationToken);
+
     public Task<IReadOnlyList<Track>> GetFavoritesAsync(
         CancellationToken cancellationToken = default) =>
         _favorites.GetAllAsync(cancellationToken);

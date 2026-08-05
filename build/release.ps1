@@ -10,6 +10,12 @@ $project = Join-Path $repositoryRoot "KMusicPlayer\KMusicPlayer.csproj"
 $artifacts = Join-Path $repositoryRoot "artifacts"
 $publishDirectory = Join-Path $artifacts "publish"
 $releaseDirectory = Join-Path $artifacts "releases"
+$numericVersion = ($Version -split '-')[0]
+$assemblyVersion = if (($numericVersion -split '\.').Count -eq 3) {
+    "$numericVersion.0"
+} else {
+    $numericVersion
+}
 
 Remove-Item -LiteralPath $publishDirectory -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $releaseDirectory -Recurse -Force -ErrorAction SilentlyContinue
@@ -22,6 +28,8 @@ dotnet publish $project `
     -r $Runtime `
     --self-contained true `
     -p:Version=$Version `
+    -p:AssemblyVersion=$assemblyVersion `
+    -p:FileVersion=$assemblyVersion `
     -o $publishDirectory
 
 if ([string]::IsNullOrWhiteSpace($MpvSourceDirectory)) {
