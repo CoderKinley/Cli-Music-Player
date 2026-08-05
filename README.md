@@ -96,6 +96,9 @@ dotnet build .\KMusicPlayer.slnx -c Release
 
 ## Publishing a release
 
+For the complete maintainer checklist, commands, versioning rules, verification,
+and failure recovery steps, see [RELEASE-GUIDE.md](RELEASE-GUIDE.md).
+
 Installed copies use Velopack and the public GitHub Releases feed. To publish a
 new version, choose a version higher than the current release. For example, to
 upgrade users from `1.1.0` to `1.2.0`:
