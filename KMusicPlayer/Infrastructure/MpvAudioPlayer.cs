@@ -42,6 +42,8 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
         }
         catch
         {
+            if (LocalTrack.TryGetPath(track.Id, out _))
+                throw;
             source = $"https://www.youtube.com/watch?v={track.Id}";
         }
 

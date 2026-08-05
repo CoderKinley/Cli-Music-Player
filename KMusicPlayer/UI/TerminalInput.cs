@@ -6,10 +6,13 @@ public static class TerminalInput
         Action redraw,
         ref int lastWidth,
         ref int lastHeight,
-        Func<bool>? idleSignal = null)
+        Func<bool>? idleSignal = null,
+        Action? periodicRedraw = null,
+        int redrawIntervalMilliseconds = 250)
     {
         var width = Console.WindowWidth;
         var height = Console.WindowHeight;
+        var nextRedrawAt = Environment.TickCount64 + redrawIntervalMilliseconds;
         if (width != lastWidth || height != lastHeight)
         {
             (width, height) = WaitForStableWindowSize();
@@ -38,6 +41,12 @@ public static class TerminalInput
 
             if (idleSignal?.Invoke() == true)
                 return new ConsoleKeyInfo('\0', ConsoleKey.MediaNext, false, false, false);
+
+            if (periodicRedraw is not null && Environment.TickCount64 >= nextRedrawAt)
+            {
+                periodicRedraw();
+                nextRedrawAt = Environment.TickCount64 + redrawIntervalMilliseconds;
+            }
 
             Thread.Sleep(50);
         }

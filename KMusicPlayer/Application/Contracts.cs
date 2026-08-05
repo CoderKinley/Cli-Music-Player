@@ -12,7 +12,26 @@ public interface IMusicSource
     Task<string> GetPlayableSourceAsync(
         Track track,
         CancellationToken cancellationToken = default);
+
+    Task<PlaylistResult> GetPlaylistAsync(
+        string playlistUrl,
+        CancellationToken cancellationToken = default);
 }
+
+public sealed record PlaylistResult(string Title, IReadOnlyList<Track> Tracks);
+
+public interface IPlaylistRepository
+{
+    Task<IReadOnlyList<SavedPlaylist>> GetAllAsync(CancellationToken cancellationToken = default);
+    Task SaveAsync(SavedPlaylist playlist, CancellationToken cancellationToken = default);
+    Task DeleteAsync(string playlistId, CancellationToken cancellationToken = default);
+}
+
+public sealed record SavedPlaylist(
+    string Id,
+    string Name,
+    string? SourceUrl,
+    IReadOnlyList<Track> Tracks);
 
 public interface IFavoriteRepository
 {
@@ -45,6 +64,37 @@ public interface IPlaybackSessionRepository
 }
 
 public sealed record PlaybackSession(Track Track, double PositionSeconds);
+
+public interface ILyricsService
+{
+    Task<LyricsResult?> GetAsync(Track track, CancellationToken cancellationToken = default);
+    Task SaveManualAsync(Track track, string lyrics, CancellationToken cancellationToken = default);
+}
+
+public sealed record LyricsResult(string Text, bool IsManual);
+
+public interface ITrackDownloadService
+{
+    Task<TrackDownloadResult> DownloadAsync(
+        Track track,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record TrackDownloadResult(string FilePath, bool AlreadyExisted);
+
+public interface ILocalMusicLibrary
+{
+    string DirectoryPath { get; }
+    Task<IReadOnlyList<Track>> ScanAsync(CancellationToken cancellationToken = default);
+    Task SetDirectoryAsync(string directoryPath, CancellationToken cancellationToken = default);
+}
+
+public interface ISettingsTransferService
+{
+    Task<string> ExportAsync(CancellationToken cancellationToken = default);
+    Task ImportAsync(string backupPath, CancellationToken cancellationToken = default);
+}
 
 public interface IAudioPlayer
 {

@@ -39,7 +39,6 @@ internal static class Program
 
         Console.Title = "Cli Musik";
         Console.OutputEncoding = System.Text.Encoding.UTF8;
-        TerminalWindow.Configure(width: 100, height: 30);
 
         var source = new YouTubeMusicSource();
         var dataDirectory = Path.Combine(
@@ -54,6 +53,23 @@ internal static class Program
             Path.Combine(dataDirectory, "settings.json"));
         var session = new JsonPlaybackSessionRepository(
             Path.Combine(dataDirectory, "session.json"));
+        using var lyrics = new LyricsService(Path.Combine(dataDirectory, "lyrics.json"));
+        var musicDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+        if (string.IsNullOrWhiteSpace(musicDirectory))
+            musicDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Music");
+        var downloads = new YouTubeTrackDownloadService(
+            Path.Combine(musicDirectory, "Musik Downloads"));
+        var localLibrary = new LocalMusicLibrary(
+            Path.Combine(dataDirectory, "local-library.json"),
+            Path.Combine(musicDirectory, "Musik Downloads"));
+        var documentsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (string.IsNullOrWhiteSpace(documentsDirectory))
+            documentsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var settingsTransfer = new JsonSettingsTransferService(
+            dataDirectory,
+            Path.Combine(documentsDirectory, "Musik Backups"));
+        var playlists = new JsonPlaylistRepository(Path.Combine(dataDirectory, "playlists.json"));
 
         using var player = new MpvAudioPlayer(source);
         var app = new MusicApplication(
@@ -65,7 +81,8 @@ internal static class Program
             session);
         await app.InitializeAsync();
 
-        var terminal = new TerminalApplication(app);
+        var terminal = new TerminalApplication(
+            app, lyrics, downloads, localLibrary, settingsTransfer, playlists);
         await terminal.RunAsync();
     }
 }
