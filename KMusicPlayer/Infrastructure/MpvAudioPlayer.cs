@@ -49,7 +49,7 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = ResolveMpvExecutable(),
+            FileName = ToolResolver.ResolveMpvExecutable(),
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardError = true,
@@ -62,6 +62,18 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
         startInfo.ArgumentList.Add("--really-quiet");
         startInfo.ArgumentList.Add($"--input-ipc-server=\\\\.\\pipe\\{pipeName}");
         startInfo.ArgumentList.Add($"--volume={Volume}");
+
+        var ytdlPath = ToolResolver.ResolveYtDlpExecutable();
+        if (!string.IsNullOrWhiteSpace(ytdlPath))
+        {
+            startInfo.ArgumentList.Add($"--script-opts=ytdl_hook-ytdl_path={ytdlPath}");
+        }
+        startInfo.ArgumentList.Add("--ytdl-format=bestaudio/best");
+        if (ToolResolver.HasNodeJs())
+        {
+            startInfo.ArgumentList.Add("--ytdl-raw-options=js-runtimes=node");
+        }
+
         if (startPosition is { TotalSeconds: > 0 })
             startInfo.ArgumentList.Add($"--start={startPosition.Value.TotalSeconds.ToString(
                 System.Globalization.CultureInfo.InvariantCulture)}");
@@ -223,11 +235,5 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
     {
         Stop();
         _childProcesses.Dispose();
-    }
-
-    private static string ResolveMpvExecutable()
-    {
-        var bundled = Path.Combine(AppContext.BaseDirectory, "tools", "mpv.exe");
-        return File.Exists(bundled) ? bundled : "mpv";
     }
 }

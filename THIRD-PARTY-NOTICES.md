@@ -17,6 +17,11 @@ The release build verifies the Windows x64 archive with SHA-256:
 
 `EF86FDE0959D789D77A3AD7C3C2DCA51C6999695363F493A6154F2C518634C0F`
 
+## yt-dlp
+
+- Project: https://github.com/yt-dlp/yt-dlp
+- License: Unlicense
+
 ## YoutubeExplode
 
 - Project: https://github.com/Tyrrrz/YoutubeExplode

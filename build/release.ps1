@@ -60,6 +60,14 @@ if ($null -eq $mpvLicense) {
     throw "The mpv LICENSE.txt file was not found."
 }
 Copy-Item -LiteralPath $mpvLicense.FullName -Destination $licensesDirectory
+
+$ytdlPath = Join-Path $toolsDirectory "yt-dlp.exe"
+if (-not (Test-Path -LiteralPath $ytdlPath)) {
+    Write-Host "Fetching latest yt-dlp binary..."
+    $ytdlUrl = "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp.exe"
+    Invoke-WebRequest -Uri $ytdlUrl -OutFile $ytdlPath
+}
+
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "README.md") -Destination $publishDirectory
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "LICENSE") -Destination $publishDirectory
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "THIRD-PARTY-NOTICES.md") -Destination $publishDirectory

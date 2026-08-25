@@ -28,21 +28,18 @@ public sealed class YouTubeMusicSource : IMusicSource
             .ToList();
     }
 
-    public async Task<string> GetPlayableSourceAsync(
+    public Task<string> GetPlayableSourceAsync(
         Track track,
         CancellationToken cancellationToken = default)
     {
         if (LocalTrack.TryGetPath(track.Id, out var localPath))
+        {
             return File.Exists(localPath)
-                ? localPath
+                ? Task.FromResult(localPath)
                 : throw new FileNotFoundException("The local audio file no longer exists.", localPath);
+        }
 
-        var manifest = await _youtube.Videos.Streams
-            .GetManifestAsync(track.Id, cancellationToken);
-        var stream = manifest.GetAudioOnlyStreams().GetWithHighestBitrate();
-
-        return stream?.Url
-            ?? throw new InvalidOperationException("No playable audio stream was found.");
+        return Task.FromResult($"https://www.youtube.com/watch?v={track.Id}");
     }
 
     public async Task<PlaylistResult> GetPlaylistAsync(
