@@ -12,6 +12,8 @@ public sealed class PlaybackQueueController
     private IReadOnlyList<Track> _tracks = [];
     private int _index = -1;
     private bool _loop;
+    private string? _sourceId;
+    private bool _currentRemoved;
 
     public PlaybackQueueController(MusicApplication music) => _music = music;
 
@@ -23,7 +25,8 @@ public sealed class PlaybackQueueController
     public async Task<Track> StartAsync(
         IReadOnlyList<Track> tracks,
         int selectedIndex,
-        bool loop)
+        bool loop,
+        string? sourceId = null)
     {
         if (tracks.Count == 0)
             throw new InvalidOperationException("Cannot play an empty queue.");
@@ -31,6 +34,7 @@ public sealed class PlaybackQueueController
         _tracks = tracks.ToList();
         _index = Math.Clamp(selectedIndex, 0, _tracks.Count - 1);
         _loop = loop;
+        _sourceId = sourceId;
         return await PlayCurrentAsync();
     }
 
@@ -39,7 +43,11 @@ public sealed class PlaybackQueueController
         if (!HasTracks)
             return null;
 
-        if (Shuffle && _tracks.Count > 1)
+        if (Shuffle && _index < 0)
+        {
+            _index = Random.Shared.Next(_tracks.Count);
+        }
+        else if (Shuffle && _tracks.Count > 1)
         {
             var next = Random.Shared.Next(_tracks.Count - 1);
             _index = next >= _index ? next + 1 : next;
@@ -66,7 +74,15 @@ public sealed class PlaybackQueueController
         if (!HasTracks)
             return null;
 
-        if (Shuffle && _tracks.Count > 1)
+        if (Shuffle && _index < 0)
+        {
+            _index = Random.Shared.Next(_tracks.Count);
+        }
+        else if (_currentRemoved && !Shuffle)
+        {
+            _index = _index < 0 && _loop ? _tracks.Count - 1 : Math.Max(0, _index);
+        }
+        else if (Shuffle && _tracks.Count > 1)
         {
             var previous = Random.Shared.Next(_tracks.Count - 1);
             _index = previous >= _index ? previous + 1 : previous;
@@ -90,6 +106,22 @@ public sealed class PlaybackQueueController
     public bool ToggleShuffle() => Shuffle = !Shuffle;
     public void SetShuffle(bool enabled) => Shuffle = enabled;
 
+    public void RemoveTrack(string sourceId, int trackIndex)
+    {
+        if (_sourceId != sourceId || trackIndex < 0 || trackIndex >= _tracks.Count)
+            return;
+
+        var tracks = _tracks.ToList();
+        tracks.RemoveAt(trackIndex);
+        _tracks = tracks;
+        if (trackIndex == _index)
+            _currentRemoved = true;
+        if (trackIndex <= _index)
+            _index--;
+        if (tracks.Count == 0)
+            Clear();
+    }
+
     public void Stop()
     {
         _music.Stop();
@@ -100,6 +132,7 @@ public sealed class PlaybackQueueController
     {
         var track = _tracks[_index];
         await _music.PlayAsync(track);
+        _currentRemoved = false;
         return track;
     }
 
@@ -107,5 +140,7 @@ public sealed class PlaybackQueueController
     {
         _tracks = [];
         _index = -1;
+        _sourceId = null;
+        _currentRemoved = false;
     }
 }

@@ -24,6 +24,7 @@ public interface IPlaylistRepository
 {
     Task<IReadOnlyList<SavedPlaylist>> GetAllAsync(CancellationToken cancellationToken = default);
     Task SaveAsync(SavedPlaylist playlist, CancellationToken cancellationToken = default);
+    Task<Track> RemoveTrackAsync(string playlistId, int trackIndex, CancellationToken cancellationToken = default);
     Task DeleteAsync(string playlistId, CancellationToken cancellationToken = default);
 }
 

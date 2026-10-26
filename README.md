@@ -6,7 +6,7 @@ A keyboard-driven YouTube music player for the Windows terminal.
 
 - Search and play music from YouTube
 - Load and play complete YouTube playlists from a pasted link
-- Save, revisit, create, and delete playlists; add online or local tracks with `A`
+- Save, revisit, create, and delete playlists; add tracks with `A` and remove individual songs with Delete/Backspace
 - Keyboard-first terminal interface
 - Persistent favorites and recently played tracks
 - Automatic queues, looping, shuffle, next, and previous controls
@@ -58,6 +58,7 @@ dotnet run --project .\KMusicPlayer
 | L | Open lyrics for the selected or currently playing track |
 | D | Download the selected or currently playing track |
 | A | Add the selected track to a saved playlist |
+| Delete / Backspace | Remove the selected song while inside a saved playlist |
 | R | Toggle shuffle |
 | N / P | Next / previous track |
 | `,` / `.` | Rewind / fast-forward 10 seconds |
@@ -85,13 +86,20 @@ state can load cleanly on the next launch.
 
 The **Playlists** Home entry is a persistent playlist library. Use `I`
 to import and save a YouTube playlist, `N` to create an empty playlist, Enter to
-open one, and Delete/Backspace to remove one. Saved playlists are stored in
+open one, and Delete/Backspace to remove one. Inside a playlist, Delete/Backspace
+removes only the selected song and saves the change immediately. Saved playlists are stored in
 `%LOCALAPPDATA%\KMusicPlayer\playlists.json` and are included in settings backups.
 
 ## Build
 
 ```powershell
 dotnet build .\KMusicPlayer.slnx -c Release
+```
+
+Run the terminal-layout, playlist-persistence, and playback-queue regression checks:
+
+```powershell
+dotnet run --project .\tests\KMusicPlayer.RegressionTests -c Release
 ```
 
 ## Publishing a release

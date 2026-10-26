@@ -1,51 +1,54 @@
-namespace KMusicPlayer.UI.Screens;
+﻿using System.Globalization;
+using System.Text;
 
-using KMusicPlayer.UI.Themes;
+namespace KMusicPlayer.UI.Screens;
 
 public static class SearchInput
 {
-    public static string? Read()
+    public static string? Read() => Read(
+        " SEARCH ", "Type a song, artist, or album. Escape returns Home; Q cancels when empty.", "Search: ");
+
+    public static string? Read(string title, string instruction, string label)
     {
-        var input = new System.Text.StringBuilder();
-        Console.CursorVisible = true;
+        var input = new StringBuilder();
         var lastWidth = -1;
         var lastHeight = -1;
         var inputChanged = true;
+        Console.CursorVisible = false;
 
         try
         {
             while (true)
             {
-                var rawWidth = Console.WindowWidth;
-                var rawHeight = Console.WindowHeight;
-                var width = Math.Max(1, rawWidth - 1);
-                if (rawWidth != lastWidth || rawHeight != lastHeight)
+                if (Console.WindowWidth != lastWidth || Console.WindowHeight != lastHeight)
                 {
+                    Console.CursorVisible = false;
                     (lastWidth, lastHeight) = TerminalInput.WaitForStableWindowSize();
-                    width = Math.Max(1, lastWidth - 1);
                     TerminalCanvas.Clear();
-                    TerminalCanvas.DrawBox(0, 0, width, 6, " SEARCH ");
-                    TerminalCanvas.WriteAt(
-                        2, 2,
-                        "Type a song, artist, or album. Q or Escape returns Home.",
-                        ConsoleColor.DarkGray);
-                    TerminalCanvas.WriteAt(2, 3, "Search: ", ConsoleColor.Cyan);
+                    TerminalCanvas.DrawBox(0, 0, TerminalCanvas.Width, Math.Min(6, lastHeight), title);
+                    TerminalCanvas.WriteAt(2, 2,
+                        TerminalCanvas.Fit(instruction, TerminalCanvas.Width - 4), ConsoleColor.DarkGray);
+                    TerminalCanvas.WriteAt(2, 3,
+                        TerminalCanvas.Fit(label, TerminalCanvas.Width - 4), ConsoleColor.Cyan);
                     inputChanged = true;
                 }
 
-                var maxWidth = Math.Max(1, width - 12);
                 if (inputChanged)
                 {
-                    Console.SetCursorPosition(10, 3);
-                    Console.ForegroundColor = ThemeManager.Map(ConsoleColor.White);
-                    Console.Write(TerminalCanvas.Fit(input.ToString(), maxWidth).PadRight(maxWidth));
-                    Console.SetCursorPosition(
-                        10 + Math.Min(input.Length, Math.Max(0, maxWidth - 1)),
-                        3);
-                    Console.ResetColor();
+                    // Hide the caret while writing the field so it never jumps
+                    // between the end of the cleared row and the editing position.
+                    Console.CursorVisible = false;
+                    var x = Math.Min(2 + TerminalText.Width(label), Math.Max(0, TerminalCanvas.Width - 2));
+                    var y = Math.Min(3, Math.Max(0, lastHeight - 1));
+                    var available = Math.Max(1, TerminalCanvas.Width - x - 2);
+                    var visible = TerminalText.Tail(input.ToString(), available - 1);
+                    TerminalCanvas.WriteAt(x, y, TerminalText.PadRight(visible, available), ConsoleColor.White);
+                    Console.SetCursorPosition(x + TerminalText.Width(visible), y);
+                    Console.CursorVisible = true;
                     inputChanged = false;
                 }
 
+                // Idle polling must not repaint the field or move the caret.
                 if (!Console.KeyAvailable)
                 {
                     Thread.Sleep(50);
@@ -56,16 +59,17 @@ public static class SearchInput
                 switch (key.Key)
                 {
                     case ConsoleKey.Escape:
-                    case ConsoleKey.Q:
+                    case ConsoleKey.Q when input.Length == 0:
                         return null;
                     case ConsoleKey.Enter:
                         return input.ToString().Trim();
                     case ConsoleKey.Backspace when input.Length > 0:
-                        input.Length--;
+                        var starts = StringInfo.ParseCombiningCharacters(input.ToString());
+                        input.Length = starts[^1];
                         inputChanged = true;
                         break;
                     default:
-                        if (!char.IsControl(key.KeyChar) && input.Length < maxWidth)
+                        if (!char.IsControl(key.KeyChar))
                         {
                             input.Append(key.KeyChar);
                             inputChanged = true;

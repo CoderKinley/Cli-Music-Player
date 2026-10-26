@@ -1,4 +1,3 @@
-using System.Text;
 using KMusicPlayer.Application;
 using KMusicPlayer.Domain;
 
@@ -8,13 +7,13 @@ public sealed class PlaylistScreen
 {
     private readonly MusicApplication _music;
     private readonly IPlaylistRepository _playlists;
-    private readonly Func<string, IReadOnlyList<Track>, Task> _showTracks;
+    private readonly Func<SavedPlaylist, Task> _showTracks;
     private readonly Action<string> _setStatus;
 
     public PlaylistScreen(
         MusicApplication music,
         IPlaylistRepository playlists,
-        Func<string, IReadOnlyList<Track>, Task> showTracks,
+        Func<SavedPlaylist, Task> showTracks,
         Action<string> setStatus)
     {
         _music = music;
@@ -55,7 +54,8 @@ public sealed class PlaylistScreen
                     selectionDirty = true;
                     break;
                 case ConsoleKey.Enter when playlists.Count > 0:
-                    await _showTracks($"PLAYLIST: {playlists[selected].Name}", playlists[selected].Tracks);
+                    await _showTracks(playlists[selected]);
+                    playlists = await _playlists.GetAllAsync();
                     renderedWidth = -1;
                     break;
                 case ConsoleKey.I:
@@ -80,6 +80,12 @@ public sealed class PlaylistScreen
                     return;
             }
         }
+    }
+
+    public async Task RemoveTrackAsync(string playlistId, int trackIndex)
+    {
+        var removed = await _playlists.RemoveTrackAsync(playlistId, trackIndex);
+        _setStatus($"Removed from playlist: {removed.Title}");
     }
 
     public async Task AddTrackAsync(Track track)
@@ -167,7 +173,7 @@ public sealed class PlaylistScreen
                 result.Tracks);
             await _playlists.SaveAsync(playlist);
             _setStatus($"Saved playlist: {playlist.Name}");
-            await _showTracks($"PLAYLIST: {playlist.Name}", playlist.Tracks);
+            await _showTracks(playlist);
         }
         catch (Exception exception)
         {
@@ -190,51 +196,8 @@ public sealed class PlaylistScreen
         return playlist;
     }
 
-    private static string? ReadText(string title, string instruction, string label)
-    {
-        var input = new StringBuilder();
-        var lastWidth = -1;
-        var lastHeight = -1;
-        Console.CursorVisible = true;
-        try
-        {
-            while (true)
-            {
-                if (lastWidth != Console.WindowWidth || lastHeight != Console.WindowHeight)
-                {
-                    (lastWidth, lastHeight) = TerminalInput.WaitForStableWindowSize();
-                    TerminalCanvas.Clear();
-                    TerminalCanvas.DrawBox(0, 0, TerminalCanvas.Width, 7, title);
-                    TerminalCanvas.WriteAt(2, 2, TerminalCanvas.Fit(instruction, TerminalCanvas.Width - 4), ConsoleColor.DarkGray);
-                }
-
-                var available = Math.Max(1, TerminalCanvas.Width - label.Length - 4);
-                TerminalCanvas.WriteAt(2, 4, label, ConsoleColor.Cyan);
-                TerminalCanvas.WriteAt(2 + label.Length, 4,
-                    TerminalCanvas.Fit(input.ToString(), available).PadRight(available), ConsoleColor.White);
-                Console.SetCursorPosition(
-                    Math.Min(Console.WindowWidth - 1, 2 + label.Length + Math.Min(input.Length, available - 1)), 4);
-
-                if (!Console.KeyAvailable)
-                {
-                    Thread.Sleep(50);
-                    continue;
-                }
-                var key = Console.ReadKey(intercept: true);
-                if (key.Key == ConsoleKey.Escape)
-                    return null;
-                if (key.Key == ConsoleKey.Enter)
-                    return input.ToString().Trim();
-                if (key.Key == ConsoleKey.Q && input.Length == 0)
-                    return null;
-                if (key.Key == ConsoleKey.Backspace && input.Length > 0)
-                    input.Length--;
-                else if (!char.IsControl(key.KeyChar))
-                    input.Append(key.KeyChar);
-            }
-        }
-        finally { Console.CursorVisible = false; }
-    }
+    private static string? ReadText(string title, string instruction, string label) =>
+        SearchInput.Read(title, instruction, label);
 
     private static void DrawLibrary(IReadOnlyList<SavedPlaylist> playlists, int selected)
     {
@@ -261,7 +224,7 @@ public sealed class PlaylistScreen
             var active = index == selected;
             var text = $"{(active ? ">" : " ")} {playlists[index].Name} ({playlists[index].Tracks.Count} tracks)";
             TerminalCanvas.WriteAt(2, 4 + index - first,
-                TerminalCanvas.Fit(text, TerminalCanvas.Width - 4).PadRight(Math.Max(1, TerminalCanvas.Width - 4)),
+                TerminalText.PadRight(text, TerminalCanvas.Width - 4),
                 active ? ConsoleColor.Black : ConsoleColor.Gray,
                 active ? ConsoleColor.Cyan : ConsoleColor.Black);
         }
@@ -290,8 +253,7 @@ public sealed class PlaylistScreen
         {
             var active = index == selected;
             TerminalCanvas.WriteAt(2, 5 + index - first,
-                TerminalCanvas.Fit($"{(active ? ">" : " ")} {playlists[index].Name}", TerminalCanvas.Width - 4)
-                    .PadRight(Math.Max(1, TerminalCanvas.Width - 4)),
+                TerminalText.PadRight($"{(active ? ">" : " ")} {playlists[index].Name}", TerminalCanvas.Width - 4),
                 active ? ConsoleColor.Black : ConsoleColor.Gray,
                 active ? ConsoleColor.Cyan : ConsoleColor.Black);
         }

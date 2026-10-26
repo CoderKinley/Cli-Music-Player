@@ -1,5 +1,6 @@
 using System.Text.Json;
 using KMusicPlayer.Application;
+using KMusicPlayer.Domain;
 
 namespace KMusicPlayer.Infrastructure;
 
@@ -33,6 +34,30 @@ public sealed class JsonPlaylistRepository : IPlaylistRepository
             else
                 playlists.Add(playlist);
             await SaveUnsafeAsync(playlists, cancellationToken);
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<Track> RemoveTrackAsync(
+        string playlistId,
+        int trackIndex,
+        CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var playlists = await LoadUnsafeAsync(cancellationToken);
+            var index = playlists.FindIndex(item => item.Id == playlistId);
+            if (index < 0)
+                throw new InvalidOperationException("The playlist no longer exists.");
+            var tracks = playlists[index].Tracks.ToList();
+            if (trackIndex < 0 || trackIndex >= tracks.Count)
+                throw new InvalidOperationException("The selected track is no longer in this playlist.");
+            var removed = tracks[trackIndex];
+            tracks.RemoveAt(trackIndex);
+            playlists[index] = playlists[index] with { Tracks = tracks };
+            await SaveUnsafeAsync(playlists, cancellationToken);
+            return removed;
         }
         finally { _gate.Release(); }
     }

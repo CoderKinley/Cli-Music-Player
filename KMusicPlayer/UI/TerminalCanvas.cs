@@ -41,12 +41,12 @@ public static class TerminalCanvas
         WriteAt(
             x,
             y,
-            Fit($"{(selected ? ">" : " ")} {text}", width).PadRight(width),
+            TerminalText.PadRight($"{(selected ? ">" : " ")} {text}", width),
             selected ? ConsoleColor.Black : ConsoleColor.Gray,
             selected ? ConsoleColor.Cyan : ConsoleColor.Black);
 
     public static void WriteCentered(int y, string text, ConsoleColor color) =>
-        WriteAt(Math.Max(0, (Width - text.Length) / 2), y, text, color);
+        WriteAt(Math.Max(0, (Width - TerminalText.Width(text)) / 2), y, text, color);
 
     public static void WriteAt(
         int x,
@@ -62,16 +62,9 @@ public static class TerminalCanvas
         Console.SetCursorPosition(x, y);
         Console.ForegroundColor = ThemeManager.Map(foreground);
         Console.BackgroundColor = ThemeManager.Map(background);
-        Console.Write(Fit(text, Console.WindowWidth - x));
+        Console.Write(Fit(text, Math.Max(0, Width - x)));
         Console.ResetColor();
     }
 
-    public static string Fit(string text, int width)
-    {
-        if (width <= 0)
-            return string.Empty;
-        if (text.Length <= width)
-            return text;
-        return width <= 3 ? text[..width] : string.Concat(text.AsSpan(0, width - 3), "...");
-    }
+    public static string Fit(string text, int width) => TerminalText.Fit(text, width);
 }

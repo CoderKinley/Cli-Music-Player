@@ -41,7 +41,7 @@ public sealed class TerminalApplication
         _playlistScreen = new PlaylistScreen(
             app,
             playlists,
-            (title, tracks) => BrowseTracksAsync(title, tracks, false, loopQueue: true),
+            BrowsePlaylistAsync,
             status => _status = status);
         _themesScreen = new ThemesScreen(app);
         _lyricsScreen = new LyricsScreen(lyrics);
@@ -473,14 +473,21 @@ public sealed class TerminalApplication
         }
     }
 
+    private Task BrowsePlaylistAsync(SavedPlaylist playlist) => BrowseTracksAsync(
+        $"PLAYLIST: {playlist.Name}", playlist.Tracks, false, loopQueue: true,
+        removeTrack: index => _playlistScreen.RemoveTrackAsync(playlist.Id, index),
+        queueSourceId: playlist.Id);
+
     private async Task<bool> BrowseTracksAsync(
         string title,
         IReadOnlyList<Track> tracks,
         bool removeOnDelete,
         bool collapsible = false,
-        bool loopQueue = false)
+        bool loopQueue = false,
+        Func<int, Task>? removeTrack = null,
+        string? queueSourceId = null)
     {
-        if (tracks.Count == 0)
+        if (tracks.Count == 0 && removeTrack is null)
         {
             Notice("This list is empty.");
             return false;
@@ -510,7 +517,8 @@ public sealed class TerminalApplication
             }
             else if (contentDirty && renderedWidth >= 0)
             {
-                DrawResultsContent(displayTitle, visibleTracks, selected, removeOnDelete, favoriteIds, collapsible);
+                DrawResultsContent(displayTitle, visibleTracks, selected, removeOnDelete, favoriteIds, collapsible,
+                    removeTrack is not null);
                 contentDirty = false;
             }
             var currentSelection = selected;
@@ -521,42 +529,43 @@ public sealed class TerminalApplication
                     currentSelection,
                     removeOnDelete,
                     favoriteIds,
-                    collapsible),
+                    collapsible,
+                    removeTrack is not null),
                 ref renderedWidth,
                 ref renderedHeight,
                 HasFinishedTrack,
                 () => DrawNowPlaying(Math.Max(10, Height() - 7), Width()));
             switch (key.Key)
             {
-                case ConsoleKey.UpArrow:
+                case ConsoleKey.UpArrow when visibleTracks.Count > 0:
                     selected = selected == 0 ? visibleTracks.Count - 1 : selected - 1;
                     selectionDirty = true;
                     break;
-                case ConsoleKey.DownArrow:
+                case ConsoleKey.DownArrow when visibleTracks.Count > 0:
                     selected = (selected + 1) % visibleTracks.Count;
                     selectionDirty = true;
                     break;
-                case ConsoleKey.Enter:
-                    await StartQueueAsync(tracks, selected, loopQueue);
+                case ConsoleKey.Enter when visibleTracks.Count > 0:
+                    await StartQueueAsync(tracks, selected, loopQueue, queueSourceId);
                     contentDirty = true;
                     break;
                 case TerminalKeys.Pause:
                     await ResumeOrTogglePauseAsync();
                     contentDirty = true;
                     break;
-                case TerminalKeys.Lyrics:
+                case TerminalKeys.Lyrics when visibleTracks.Count > 0:
                     await _lyricsScreen.ShowAsync(visibleTracks[selected]);
                     renderedWidth = -1;
                     break;
-                case TerminalKeys.Download:
+                case TerminalKeys.Download when visibleTracks.Count > 0:
                     await DownloadTrackAsync(visibleTracks[selected]);
                     renderedWidth = -1;
                     break;
-                case TerminalKeys.AddToPlaylist:
+                case TerminalKeys.AddToPlaylist when visibleTracks.Count > 0:
                     await _playlistScreen.AddTrackAsync(visibleTracks[selected]);
                     renderedWidth = -1;
                     break;
-                case TerminalKeys.Favorite:
+                case TerminalKeys.Favorite when visibleTracks.Count > 0:
                     var selectedTrack = visibleTracks[selected];
                     await ToggleFavoriteAsync(selectedTrack);
                     if (!favoriteIds.Add(selectedTrack.Id))
@@ -564,6 +573,21 @@ public sealed class TerminalApplication
                     selectionDirty = true;
                     if (removeOnDelete)
                         return true;
+                    break;
+                case ConsoleKey.Delete when removeTrack is not null && visibleTracks.Count > 0:
+                case ConsoleKey.Backspace when removeTrack is not null && visibleTracks.Count > 0:
+                    try
+                    {
+                        await removeTrack(selected);
+                        _playbackQueue.RemoveTrack(queueSourceId!, selected);
+                        tracks = tracks.Where((_, index) => index != selected).ToList();
+                        contentDirty = true;
+                    }
+                    catch (Exception exception)
+                    {
+                        Notice($"Could not remove track: {exception.Message}");
+                        renderedWidth = -1;
+                    }
                     break;
                 case ConsoleKey.Delete when removeOnDelete:
                 case ConsoleKey.Backspace when removeOnDelete:
@@ -695,8 +719,9 @@ public sealed class TerminalApplication
         WriteAt(
             2,
             playerY + 5,
-            $"Play: Enter   Lyrics: L   Download: D   P/N: Previous/Next   Pause: Space   Shuffle: R [{(_playbackQueue.Shuffle ? "ON" : "OFF")}]"
-                .PadRight(Math.Max(1, width - 4)),
+            TerminalText.PadRight(
+                $"Play: Enter   Lyrics: L   Download: D   P/N: Previous/Next   Pause: Space   Shuffle: R [{(_playbackQueue.Shuffle ? "ON" : "OFF")}]",
+                width - 4),
             ConsoleColor.DarkGray);
         DrawVolumeControl(Math.Min(height - 2, playerY + 6), width);
     }
@@ -762,7 +787,8 @@ public sealed class TerminalApplication
         int selected,
         bool removeOnDelete,
         IReadOnlySet<string> favoriteIds,
-        bool collapsible)
+        bool collapsible,
+        bool playlistRemoval = false)
     {
         var width = Width();
         var height = Height();
@@ -771,7 +797,7 @@ public sealed class TerminalApplication
         DrawBox(0, 0, width, listBottom, $" {title.ToUpperInvariant()} ");
         WriteAt(2, 2, "TYPE   TITLE / ARTIST", ConsoleColor.DarkGray);
         WriteAt(Math.Max(20, width - 12), 2, "DURATION", ConsoleColor.DarkGray);
-        DrawResultsContent(title, tracks, selected, removeOnDelete, favoriteIds, collapsible);
+        DrawResultsContent(title, tracks, selected, removeOnDelete, favoriteIds, collapsible, playlistRemoval);
     }
 
     private void DrawResultsContent(
@@ -780,7 +806,8 @@ public sealed class TerminalApplication
         int selected,
         bool removeOnDelete,
         IReadOnlySet<string> favoriteIds,
-        bool collapsible)
+        bool collapsible,
+        bool playlistRemoval = false)
     {
         var width = Width();
         var height = Height();
@@ -790,8 +817,9 @@ public sealed class TerminalApplication
         DrawNowPlaying(listBottom, width);
         var favoriteHint = removeOnDelete ? "F/Delete: Remove" : "F: Favorite";
         var expandHint = collapsible ? "   E: Expand/Collapse" : "";
+        var removeHint = playlistRemoval ? "Delete: Remove song   " : "";
         WriteAt(2, Math.Min(height - 1, listBottom + 5),
-            $"Arrows: Navigate   Enter: Play   A: Playlist   L: Lyrics   D: Download   P/N: Previous/Next   " +
+            $"{removeHint}Arrows: Navigate   Enter: Play   A: Playlist   L: Lyrics   D: Download   P/N: Previous/Next   " +
             $"{favoriteHint}{expandHint}   R: Shuffle [{(_playbackQueue.Shuffle ? "ON" : "OFF")}]   Q: Home",
             ConsoleColor.DarkGray);
     }
@@ -813,14 +841,23 @@ public sealed class TerminalApplication
             var track = tracks[index];
             var y = 4 + index - first;
             var favorite = favoriteIds.Contains(track.Id) ? "♥" : " ";
-            var text = $"{(index == selected ? ">" : " ")} {index + 1,2}. {favorite} SONG   {track.Title} - {track.Artist}";
-            WriteAt(1, y, Fit(text, width - 13).PadRight(Math.Max(1, width - 13)),
+            var prefix = $"{(index == selected ? ">" : " ")} {index + 1,2}. {favorite} SONG   ";
+            var text = prefix + TerminalText.TrackLabel(track.Title, track.Artist,
+                width - 13 - TerminalText.Width(prefix));
+            WriteAt(1, y, TerminalText.PadRight(text, width - 13),
                 index == selected ? ConsoleColor.Black : ConsoleColor.Gray,
                 index == selected ? ConsoleColor.Blue : ConsoleColor.Black);
             WriteAt(width - 11, y, track.DurationText.PadLeft(8),
                 index == selected ? ConsoleColor.Yellow : ConsoleColor.DarkCyan,
                 index == selected ? ConsoleColor.Blue : ConsoleColor.Black);
         }
+
+        // Deletions and shorter lists must erase rows left by the previous frame.
+        for (var row = last - first; row < rows; row++)
+            WriteAt(1, 4 + row, new string(' ', Math.Max(0, width - 2)), ConsoleColor.Gray);
+        if (tracks.Count == 0)
+            WriteAt(2, 4, Fit("This playlist is empty. Add songs with A from Search or Local Music.", width - 4),
+                ConsoleColor.DarkGray);
     }
 
     private void DrawNowPlaying(int y, int width)
@@ -839,7 +876,7 @@ public sealed class TerminalApplication
         WriteAt(
             2,
             y + 1,
-            Fit($"> Currently playing: {title}", width - times.Length - 6),
+            TerminalText.PadRight($"> Currently playing: {title}", width - times.Length - 6),
             _app.IsPlaying ? ConsoleColor.Cyan : ConsoleColor.DarkGray);
         WriteAt(Math.Max(2, width - times.Length - 2), y + 1, times, ConsoleColor.Gray);
 
@@ -867,7 +904,7 @@ public sealed class TerminalApplication
         var rows = Math.Max(1, height);
         if (tracks.Count == 0)
         {
-            WriteAt(x, y, "No tracks yet".PadRight(Math.Max(1, width)), ConsoleColor.DarkGray);
+            WriteAt(x, y, TerminalText.PadRight("No tracks yet", width), ConsoleColor.DarkGray);
             for (var row = 1; row < rows; row++)
                 WriteAt(x, y + row, new string(' ', Math.Max(1, width)), ConsoleColor.Gray);
             return;
@@ -881,8 +918,9 @@ public sealed class TerminalApplication
             WriteAt(
                 x,
                 y + index - first,
-                Fit($"{(active ? ">" : " ")} {(favoriteIds.Contains(tracks[index].Id) ? "♥" : " ")} " +
-                    $"{tracks[index].Title} - {tracks[index].Artist}", width).PadRight(width),
+                TerminalText.PadRight(
+                    $"{(active ? ">" : " ")} {(favoriteIds.Contains(tracks[index].Id) ? "♥" : " ")} " +
+                    TerminalText.TrackLabel(tracks[index].Title, tracks[index].Artist, width - 4), width),
                 active ? ConsoleColor.Black : ConsoleColor.Gray,
                 active ? ConsoleColor.Cyan : ConsoleColor.Black);
         }
@@ -914,11 +952,12 @@ public sealed class TerminalApplication
     private async Task StartQueueAsync(
         IReadOnlyList<Track> tracks,
         int selected,
-        bool loop)
+        bool loop,
+        string? sourceId = null)
     {
         try
         {
-            var track = await _playbackQueue.StartAsync(tracks, selected, loop);
+            var track = await _playbackQueue.StartAsync(tracks, selected, loop, sourceId);
             _status = $"Playing: {track.Title}";
         }
         catch (Exception exception)
@@ -1109,7 +1148,7 @@ public sealed class TerminalApplication
     }
 
     private static void WriteMenuItem(int x, int y, int width, string text, bool selected) =>
-        WriteAt(x, y, Fit($"{(selected ? ">" : " ")} {text}", width).PadRight(width),
+        WriteAt(x, y, TerminalText.PadRight($"{(selected ? ">" : " ")} {text}", width),
             selected ? ConsoleColor.Black : ConsoleColor.Gray,
             selected ? ConsoleColor.Cyan : ConsoleColor.Black);
 
@@ -1140,14 +1179,7 @@ public sealed class TerminalApplication
     private static string FormatTime(TimeSpan value) =>
         value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : value.ToString(@"m\:ss");
 
-    private static string Fit(string text, int width)
-    {
-        if (width <= 0)
-            return string.Empty;
-        if (text.Length <= width)
-            return text;
-        return width <= 3 ? text[..width] : string.Concat(text.AsSpan(0, width - 3), "...");
-    }
+    private static string Fit(string text, int width) => TerminalCanvas.Fit(text, width);
 
     private static int Width() => Math.Max(1, Console.WindowWidth - 1);
     private static int Height() => Math.Max(1, Console.WindowHeight);
