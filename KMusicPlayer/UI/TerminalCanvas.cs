@@ -4,11 +4,13 @@ using KMusicPlayer.UI.Themes;
 
 public static class TerminalCanvas
 {
+    public static long Version { get; private set; }
     public static int Width => Math.Max(1, Console.WindowWidth - 1);
     public static int Height => Math.Max(1, Console.WindowHeight);
 
     public static void Clear()
     {
+        Version++;
         Console.ResetColor();
         Console.Write("\u001b[2J\u001b[3J\u001b[H");
         try

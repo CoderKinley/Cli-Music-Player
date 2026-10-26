@@ -27,7 +27,8 @@ public static class ThemeManager
                 ConsoleColor.DarkBlue => ConsoleColor.DarkGreen,
                 ConsoleColor.Yellow => ConsoleColor.Green,
                 ConsoleColor.DarkYellow => ConsoleColor.DarkGreen,
-                ConsoleColor.Gray => ConsoleColor.DarkGray,
+                ConsoleColor.Gray => ConsoleColor.White,
+                ConsoleColor.DarkGray => ConsoleColor.Gray,
                 ConsoleColor.White => ConsoleColor.White,
                 ConsoleColor.Black => ConsoleColor.Black,
                 _ => color
@@ -38,7 +39,8 @@ public static class ThemeManager
                 ConsoleColor.Cyan => ConsoleColor.Red,
                 ConsoleColor.DarkCyan => ConsoleColor.DarkRed,
                 ConsoleColor.DarkBlue => ConsoleColor.DarkRed,
-                ConsoleColor.Gray => ConsoleColor.DarkGray,
+                ConsoleColor.Gray => ConsoleColor.White,
+                ConsoleColor.DarkGray => ConsoleColor.Gray,
                 _ => color
             },
             _ => color

@@ -6,7 +6,7 @@ namespace KMusicPlayer.UI.Screens;
 public static class SearchInput
 {
     public static string? Read() => Read(
-        " SEARCH ", "Type a song, artist, or album. Escape returns Home; Q cancels when empty.", "Search: ");
+        " SEARCH ", "Type a song, artist, or album. Enter: Search   Escape: Back   F1: Guide", "Search: ");
 
     public static string? Read(string title, string instruction, string label)
     {
@@ -58,8 +58,13 @@ public static class SearchInput
                 var key = Console.ReadKey(intercept: true);
                 switch (key.Key)
                 {
+                    case TerminalKeys.Help:
+                        Console.CursorVisible = false;
+                        GuideScreen.Show();
+                        lastWidth = -1;
+                        inputChanged = true;
+                        break;
                     case ConsoleKey.Escape:
-                    case ConsoleKey.Q when input.Length == 0:
                         return null;
                     case ConsoleKey.Enter:
                         return input.ToString().Trim();

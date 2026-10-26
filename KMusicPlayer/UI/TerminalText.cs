@@ -60,6 +60,34 @@ public static class TerminalText
         return Fit(title, titleWidth) + separator + Fit(artist, artistWidth);
     }
 
+    public static IReadOnlyList<string> Wrap(string text, int width)
+    {
+        width = Math.Max(1, width);
+        var lines = new List<string>();
+        foreach (var paragraph in text.Replace("\r", "").Split('\n'))
+        {
+            var line = new StringBuilder();
+            var cells = 0;
+            foreach (var element in Elements(paragraph))
+            {
+                var nextWidth = CellWidth(element);
+                if (cells > 0 && cells + nextWidth > width)
+                {
+                    lines.Add(line.ToString());
+                    line.Clear();
+                    cells = 0;
+                }
+                // A double-width grapheme cannot fit in a one-cell viewport.
+                if (nextWidth > width)
+                    continue;
+                line.Append(element);
+                cells += nextWidth;
+            }
+            lines.Add(line.ToString());
+        }
+        return lines;
+    }
+
     private static IEnumerable<string> Elements(string text)
     {
         // Metadata must stay on one row and must never execute terminal controls.
@@ -104,6 +132,10 @@ public static class TerminalText
                 >= 0x20000 and <= 0x3FFFD;
             width = Math.Max(width, wide ? 2 : 1);
         }
-        return emojiPresentation ? Math.Max(2, width) : width;
+        var displayWidth = emojiPresentation ? Math.Max(2, width) : width;
+        // Win32 console buffers can allocate a cell per UTF-16 code unit for
+        // joined emoji and combining sequences, even when a terminal draws one
+        // glyph. Reserve that space so cursor-addressed rows cannot overlap.
+        return OperatingSystem.IsWindows() ? Math.Max(displayWidth, element.Length) : displayWidth;
     }
 }

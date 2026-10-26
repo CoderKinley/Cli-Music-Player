@@ -4,11 +4,29 @@ using KMusicPlayer.Domain;
 using KMusicPlayer.Infrastructure;
 using KMusicPlayer.UI;
 using KMusicPlayer.UI.Screens;
+using KMusicPlayer.UI.Themes;
 
 Console.OutputEncoding = Encoding.UTF8;
+if (args.Contains("--width-probe"))
+{
+    foreach (var sample in new[] { "A", "ヨルシカ", "🎵", "👩‍🎤", "🇧🇹", "❤️" })
+    {
+        Console.SetCursorPosition(0, Console.CursorTop);
+        Console.Write(sample);
+        var cells = Console.CursorLeft;
+        Console.WriteLine($" = {cells} host cells, {TerminalText.Width(sample)} measured cells");
+    }
+    return;
+}
 if (args.Contains("--input-probe"))
 {
     Console.WriteLine($"INPUT RESULT: {SearchInput.Read()}");
+    return;
+}
+if (args.Contains("--guide-probe"))
+{
+    GuideScreen.Show();
+    Console.WriteLine("PASS: guide navigation and return.");
     return;
 }
 
@@ -20,10 +38,81 @@ void Check(bool condition, string description)
     checks++;
 }
 
+foreach (var theme in new[] { TerminalTheme.Spotify, TerminalTheme.SoundCloud })
+{
+    ThemeManager.Apply(theme);
+    Check(ThemeManager.Map(ConsoleColor.Gray) == ConsoleColor.White, "Theme dims primary text");
+    Check(ThemeManager.Map(ConsoleColor.DarkGray) == ConsoleColor.Gray, "Theme dims shortcut instructions");
+    Check(ThemeManager.Map(ConsoleColor.Black) == ConsoleColor.Black, "Theme changes the black background or selection text");
+    Check(ThemeManager.Map(ConsoleColor.Cyan) != ConsoleColor.Black, "Theme hides selection highlights");
+}
+ThemeManager.Apply(ThemeManager.Default);
+
+var panelWrites = new List<(int X, int Y, string Text, ConsoleColor Foreground, ConsoleColor Background)>();
+var panel = new PlaybackPanel((x, y, text, foreground, background) => panelWrites.Add((x, y, text, foreground, background)));
+var panelFrame = new PlaybackPanelFrame(10, 80, 1, TerminalTheme.Blue,
+    " PLAYING | Vol 50% | Shuffle OFF ", "A long song title", "0:00 / 4:32", true, 0);
+panel.Draw(panelFrame);
+Check(panelWrites.Any(write => write.Y == 13), "First frame must draw the player border");
+panelWrites.Clear();
+for (var poll = 0; poll < 40; poll++)
+    panel.Draw(panelFrame);
+Check(panelWrites.Count == 0, "An unchanged player must not write to the terminal");
+panelFrame = panelFrame with { Time = "0:01 / 4:32" };
+panel.Draw(panelFrame);
+Check(panelWrites.Count == 1 && panelWrites[0].Text == panelFrame.Time, "A timer tick repainted static player content");
+panelWrites.Clear();
+panelFrame = panelFrame with { Filled = 3 };
+panel.Draw(panelFrame);
+Check(panelWrites.Count == 1 && panelWrites[0].X == 2 && panelWrites[0].Text.Length == 3
+    && panelWrites[0].Background == ConsoleColor.Blue, "Progress must paint only newly filled cells");
+panelWrites.Clear();
+panelFrame = panelFrame with { Filled = 1 };
+panel.Draw(panelFrame);
+Check(panelWrites.Count == 1 && panelWrites[0].X == 3 && panelWrites[0].Text == "░░"
+    && panelWrites[0].Background == ConsoleColor.Black, "Backward seeking must restore only emptied cells");
+panelWrites.Clear();
+panelFrame = panelFrame with { CanvasVersion = 2 };
+panel.Draw(panelFrame);
+Check(panelWrites.Any(write => write.Y == 13), "Returning from a cleared screen must restore the player");
+panelWrites.Clear();
+panelFrame = panelFrame with { Theme = TerminalTheme.Spotify };
+panel.Draw(panelFrame);
+Check(panelWrites.Any(write => write.Y == 13), "A theme change must repaint the player");
+
+// Compare the resulting cells with a fresh paint to catch stale title, timer, and progress remnants.
+var panelCells = new Dictionary<(int X, int Y), (char Text, ConsoleColor Foreground, ConsoleColor Background)>();
+var incrementalPanel = new PlaybackPanel((x, y, text, foreground, background) =>
+{
+    for (var index = 0; index < text.Length; index++)
+        panelCells[(x + index, y)] = (text[index], foreground, background);
+});
+foreach (var frame in new[]
+{
+    panelFrame,
+    panelFrame with { Title = new string('a', 200), Time = "59:59 / 1:00:01", Filled = 75 },
+    panelFrame with { Title = "[PAUSED] Short", Heading = " PAUSED | Vol 100% | Shuffle ON ", Time = "1:00:00 / 1:00:01", Filled = 76 },
+    panelFrame with { Title = "Ready", Heading = " READY ", Time = "0:00 / --:--", IsPlaying = false, Filled = 0 },
+    panelFrame with { Width = 60, Top = 11 },
+    panelFrame with { Width = 100, Top = 12, Theme = TerminalTheme.SoundCloud }
+})
+{
+    incrementalPanel.Draw(frame);
+    var freshPanel = new PlaybackPanel((x, y, text, foreground, background) =>
+    {
+        Check(x >= 0 && x + text.Length <= frame.Width, "Player write exceeds its panel");
+        for (var index = 0; index < text.Length; index++)
+            Check(panelCells.TryGetValue((x + index, y), out var cell) && cell == (text[index], foreground, background),
+                "Incremental player differs from a fresh frame");
+    });
+    freshPanel.Draw(frame);
+}
+
 foreach (var (text, expected) in new (string, int)[]
 {
-    ("Coldplay", 8), ("ヨルシカ", 8), ("中文", 4), ("e\u0301", 1),
-    ("🎵", 2), ("👩‍🎤", 2), ("🇧🇹", 2), ("❤️", 2), ("♥", 1), ("⚡", 2)
+    ("Coldplay", 8), ("ヨルシカ", 8), ("中文", 4), ("e\u0301", OperatingSystem.IsWindows() ? 2 : 1),
+    ("🎵", 2), ("👩‍🎤", OperatingSystem.IsWindows() ? 5 : 2),
+    ("🇧🇹", OperatingSystem.IsWindows() ? 4 : 2), ("❤️", 2), ("♥", 1), ("⚡", 2)
 })
     Check(TerminalText.Width(text) == expected, $"Wrong terminal width for {text}");
 
@@ -44,8 +133,8 @@ foreach (var width in Enumerable.Range(0, 161))
     Check(!fitted.Contains('\uFFFD'), "Fitting damaged a Unicode grapheme");
 }
 Check(TerminalText.Fit("ヨルシカ", 6) == "ヨ...", "Wide truncation must leave room for ellipsis");
-Check(TerminalText.Fit("👩‍🎤 music", 2) == "👩‍🎤", "A joined emoji was split");
-Check(TerminalText.Fit("e\u0301x", 1) == "e\u0301", "A combining sequence was split");
+Check(TerminalText.Fit("👩‍🎤 music", TerminalText.Width("👩‍🎤") + 3).StartsWith("👩‍🎤"), "A joined emoji was split");
+Check(TerminalText.Fit("e\u0301x", TerminalText.Width("e\u0301")) == "e\u0301", "A combining sequence was split");
 Check(TerminalText.Fit("text", -1) == "", "Negative budgets must be empty");
 foreach (var title in samples)
 foreach (var artist in samples)
@@ -56,6 +145,30 @@ var label = TerminalText.TrackLabel(new string('x', 200), "Coldplay", 40);
 Check(label.EndsWith(" - Coldplay"), "Long titles should preserve a short artist");
 Check(TerminalText.TrackLabel("Yellow", new string('a', 300), 40).StartsWith("Yellow - "),
     "A long artist should preserve a short title");
+
+foreach (var sample in samples.Take(5))
+foreach (var width in Enumerable.Range(5, 76))
+{
+    var wrapped = TerminalText.Wrap(sample, width);
+    Check(wrapped.All(line => TerminalText.Width(line) <= width), "Wrapped text overflows its row");
+    Check(string.Concat(wrapped) == sample, "Wrapping lost song or artist text");
+}
+Check(TerminalText.Wrap("first\n\nlast", 20).SequenceEqual(new[] { "first", "", "last" }), "Wrapping lost empty paragraphs");
+Check(GuideCatalog.Find("shuffle").Any(entry => entry.Keys == "R"), "Guide search cannot find shuffle");
+Check(GuideCatalog.Find("import", "Library").Any(entry => entry.Keys.Contains("URL")), "Guide cannot find playlist import instructions");
+Check(GuideCatalog.Find("SHIFT+TAB").Any(), "Guide combinations must be searchable without case sensitivity");
+Check(!GuideCatalog.Find("no-such-shortcut-1234").Any(), "Unknown guide terms should not return unrelated entries");
+Check(GuideCatalog.Find("playlist remove").Any(), "Guide search must combine keyword terms");
+foreach (var height in Enumerable.Range(20, 81))
+{
+    Check(TerminalLayout.PlayerTop(height) + 9 == height, "Footer overlaps the player or terminal bottom");
+    Check(4 + TerminalLayout.SongRows(height) == TerminalLayout.PlayerTop(height) - 1, "Song rows overlap the panel border");
+}
+Check(!TerminalLayout.Fits(59, 20) && !TerminalLayout.Fits(80, 19) && TerminalLayout.Fits(60, 20), "Small-window layout boundary is incorrect");
+Check(ListNavigation.Page(0, 0, 10, 1) == 0, "Paging an empty list must be safe");
+Check(ListNavigation.Page(15, 20, 10, 1) == 19, "Page down did not clamp to the final song");
+Check(ListNavigation.Page(5, 20, 10, -1) == 0, "Page up did not clamp to the first song");
+Check(ListNavigation.FirstVisible(19, 20, 5) == 15, "Last-page scrolling must keep the selection visible");
 
 var testDirectory = Path.Combine(Path.GetTempPath(), "Musik-Regression-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(testDirectory);
@@ -94,11 +207,15 @@ try
         new JsonHistoryRepository(Path.Combine(testDirectory, "history.json")),
         new JsonSettingsRepository(Path.Combine(testDirectory, "settings.json")),
         new JsonPlaybackSessionRepository(Path.Combine(testDirectory, "session.json")));
-    if (args.Contains("--playlist-probe"))
+    if (args.Contains("--playlist-probe") || args.Contains("--ux-probe"))
     {
         var longTrack = new Track("long", string.Concat(Enumerable.Repeat("ヨルシカ 🎵 春泥棒 ", 15)),
             string.Concat(Enumerable.Repeat("Very long artist ヨルシカ 👩‍🎤 ", 15)), TimeSpan.FromMinutes(4));
-        await repository.SaveAsync(new SavedPlaylist("one", "UI regression playlist", "source-url", [longTrack, b]));
+        var uxProbe = args.Contains("--ux-probe");
+        IReadOnlyList<Track> probeTracks = uxProbe
+            ? new[] { longTrack }.Concat(Enumerable.Range(1, 30).Select(index => new Track($"probe-{index}", $"Song {index}", "Test artist", null))).ToList()
+            : [longTrack, b];
+        await repository.SaveAsync(new SavedPlaylist("one", "UI regression playlist", "source-url", probeTracks));
         var favorites = new JsonFavoriteRepository(Path.Combine(testDirectory, "favorites.json"));
         await favorites.AddAsync(longTrack);
         await music.InitializeAsync();
@@ -109,9 +226,19 @@ try
             new JsonSettingsTransferService(testDirectory, Path.Combine(testDirectory, "backups")), repository);
         await terminal.RunAsync();
         saved = await new JsonPlaylistRepository(path).GetAllAsync();
-        Check(saved[0].Tracks.Count == 0 && saved[1].Tracks.Count == 1, "UI deletion did not persist correctly");
-        Check((await favorites.GetAllAsync()).Single() == longTrack, "Playlist removal changed favorites");
-        Console.WriteLine("PASS: interactive playlist removal, empty-list navigation, saved counts, and favorites isolation.");
+        if (uxProbe)
+        {
+            Check(saved[0].Tracks.Count == 31, "Browsing help or details changed the playlist");
+            Check(player.CurrentTrack?.Id == "probe-30", "End navigation or returning from details changed the selected song");
+            Check((await favorites.GetAllAsync()).Any(track => track.Id == "probe-30"), "Favorite action did not apply to the selected song");
+            Console.WriteLine("PASS: interactive guide, details, end/page navigation, playback selection, and favorites.");
+        }
+        else
+        {
+            Check(saved[0].Tracks.Count == 0 && saved[1].Tracks.Count == 1, "UI deletion did not persist correctly");
+            Check((await favorites.GetAllAsync()).Single() == longTrack, "Playlist removal changed favorites");
+            Console.WriteLine("PASS: interactive playlist removal, empty-list navigation, saved counts, and favorites isolation.");
+        }
         return;
     }
     var queue = new PlaybackQueueController(music);
@@ -151,7 +278,7 @@ finally
 {
     Directory.Delete(testDirectory, recursive: true);
 }
-Console.WriteLine($"PASS: {checks} regression checks (terminal text, playlist persistence, playback queues).");
+Console.WriteLine($"PASS: {checks} regression checks (terminal text, playback rendering, themes, playlist persistence, playback queues).");
 
 sealed class FakeSource : IMusicSource
 {

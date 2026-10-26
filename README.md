@@ -18,6 +18,7 @@ A keyboard-driven YouTube music player for the Windows terminal.
 - Previous-session playback restoration
 - Spotify and SoundCloud terminal themes
 - Responsive, low-flicker terminal layout
+- Searchable in-app keyboard guide with `F1`, full song details with `I`, and page navigation
 
 ## Install
 
@@ -59,9 +60,18 @@ dotnet run --project .\KMusicPlayer
 
 ## Keyboard controls
 
+Open **Keyboard Guide** from Home or press `F1` to search every shortcut and see
+where it applies. The [complete keyboard and usage guide](GUIDE.md) also includes
+step-by-step search, playlist, lyrics, and offline-listening instructions.
+
 | Key | Action |
 | --- | --- |
 | Arrow keys | Navigate |
+| Tab / Shift+Tab | Focus the next / previous Home panel |
+| Page Up / Page Down, Home / End | Page through lists or jump to their beginning / end |
+| F1 / ? | Open the keyboard guide (`F1` also works in search and playlist text fields) |
+| I | Inspect full song information on Home or in a song list |
+| / | Open music search; find shortcuts inside the keyboard guide |
 | Enter | Select or play |
 | Space | Pause, resume, or restore the previous session |
 | F | Add or remove a favorite |

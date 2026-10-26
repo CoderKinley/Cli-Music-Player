@@ -19,7 +19,7 @@ public sealed class LyricsScreen
             if (result is null)
             {
                 DrawMissing(track);
-                var key = Console.ReadKey(intercept: true).Key;
+                var key = TerminalInput.ReadWithHelp().Key;
                 if (key is ConsoleKey.Q or ConsoleKey.Escape)
                     return;
                 if (key != ConsoleKey.E)
@@ -48,6 +48,8 @@ public sealed class LyricsScreen
         var offset = 0;
         var lastWidth = -1;
         var lastHeight = -1;
+        var renderedWidth = -1;
+        var renderedHeight = -1;
         while (true)
         {
             var pageSize = Math.Max(1, TerminalCanvas.Height - 6);
@@ -62,7 +64,13 @@ public sealed class LyricsScreen
                 DrawFrame(track, result.IsManual);
             }
             DrawLyricsRows(lines, offset, pageSize);
-            switch (Console.ReadKey(intercept: true).Key)
+            var currentOffset = offset;
+            var key = TerminalInput.ReadResponsive(() =>
+            {
+                DrawFrame(track, result.IsManual);
+                DrawLyricsRows(lines, currentOffset, pageSize);
+            }, ref renderedWidth, ref renderedHeight);
+            switch (key.Key)
             {
                 case ConsoleKey.UpArrow:
                     offset--;
@@ -101,7 +109,7 @@ public sealed class LyricsScreen
         for (var index = 0; index < pageSize; index++)
         {
             var text = offset + index < lines.Count ? lines[offset + index] : string.Empty;
-            TerminalCanvas.WriteAt(2, 4 + index, text.PadRight(rowWidth), ConsoleColor.Gray);
+            TerminalCanvas.WriteAt(2, 4 + index, TerminalText.PadRight(text, rowWidth), ConsoleColor.Gray);
         }
     }
 
@@ -113,25 +121,14 @@ public sealed class LyricsScreen
             TerminalCanvas.Fit($"{track.Title} - {track.Artist}", TerminalCanvas.Width - 4),
             ConsoleColor.Cyan);
         TerminalCanvas.WriteAt(2, 2,
-            $"Up/Down/Page: Scroll   E: Edit   L/Q: Back   Source: {(isManual ? "Saved" : "LRCLIB")}",
+            TerminalCanvas.Fit($"L/Q: Back   E: Edit   F1: Guide   Up/Down/Page: Scroll   Source: {(isManual ? "Saved" : "LRCLIB")}", TerminalCanvas.Width - 4),
             ConsoleColor.DarkGray);
     }
 
     private static IReadOnlyList<string> WrapLines(string lyrics)
     {
         var width = Math.Max(1, TerminalCanvas.Width - 4);
-        var output = new List<string>();
-        foreach (var line in lyrics.Split('\n'))
-        {
-            if (line.Length == 0)
-            {
-                output.Add(string.Empty);
-                continue;
-            }
-            for (var start = 0; start < line.Length; start += width)
-                output.Add(line.Substring(start, Math.Min(width, line.Length - start)));
-        }
-        return output;
+        return TerminalText.Wrap(lyrics, width);
     }
 
     private static string? ReadPastedLyrics(Track track)

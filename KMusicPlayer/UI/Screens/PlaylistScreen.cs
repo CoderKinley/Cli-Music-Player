@@ -45,6 +45,17 @@ public sealed class PlaylistScreen
 
             switch (key.Key)
             {
+                case ConsoleKey.PageUp:
+                case ConsoleKey.PageDown:
+                    selected = ListNavigation.Page(selected, playlists.Count, Math.Max(1, TerminalCanvas.Height - 6),
+                        key.Key == ConsoleKey.PageUp ? -1 : 1);
+                    selectionDirty = true;
+                    break;
+                case ConsoleKey.Home:
+                case ConsoleKey.End:
+                    selected = key.Key == ConsoleKey.Home ? 0 : Math.Max(0, playlists.Count - 1);
+                    selectionDirty = true;
+                    break;
                 case ConsoleKey.UpArrow when playlists.Count > 0:
                     selected = selected == 0 ? playlists.Count - 1 : selected - 1;
                     selectionDirty = true;
@@ -204,7 +215,7 @@ public sealed class PlaylistScreen
         TerminalCanvas.Clear();
         TerminalCanvas.DrawBox(0, 0, TerminalCanvas.Width, TerminalCanvas.Height, " PLAYLISTS ");
         TerminalCanvas.WriteAt(2, 2,
-            "I: Import YouTube   N: New   Enter: Open   Delete: Remove   Q: Home",
+            TerminalCanvas.Fit("I: Import  N: New  Enter: Open  Del: Remove  F1: Guide  Q: Back", TerminalCanvas.Width - 4),
             ConsoleColor.DarkGray);
         if (playlists.Count == 0)
         {
@@ -217,7 +228,7 @@ public sealed class PlaylistScreen
     private static void DrawLibraryRows(IReadOnlyList<SavedPlaylist> playlists, int selected)
     {
         var rows = Math.Max(1, TerminalCanvas.Height - 6);
-        var first = Math.Clamp(selected - rows / 2, 0, Math.Max(0, playlists.Count - rows));
+        var first = ListNavigation.FirstVisible(selected, playlists.Count, rows);
         var last = Math.Min(playlists.Count, first + rows);
         for (var index = first; index < last; index++)
         {

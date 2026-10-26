@@ -16,6 +16,8 @@ public static class TerminalKeys
     public const ConsoleKey Lyrics = ConsoleKey.L;
     public const ConsoleKey Download = ConsoleKey.D;
     public const ConsoleKey AddToPlaylist = ConsoleKey.A;
+    public const ConsoleKey Help = ConsoleKey.F1;
+    public const ConsoleKey TrackDetails = ConsoleKey.I;
     public const ConsoleKey Rewind = ConsoleKey.OemComma;
     public const ConsoleKey FastForward = ConsoleKey.OemPeriod;
 }
