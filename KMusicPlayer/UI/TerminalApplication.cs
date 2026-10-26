@@ -10,6 +10,7 @@ namespace KMusicPlayer.UI;
 public sealed class TerminalApplication
 {
     private readonly MusicApplication _app;
+    private readonly PlaybackPanel _playbackPanel = new();
     private readonly PlaybackQueueController _playbackQueue;
     private readonly SearchScreen _searchScreen;
     private readonly PlaylistScreen _playlistScreen;
@@ -60,7 +61,7 @@ public sealed class TerminalApplication
             while (true)
             {
                 var selected = await ShowDashboardAsync();
-                if (selected is -1 or 7)
+                if (selected is -1 or 8)
                     return;
 
                 if (selected == 0)
@@ -77,6 +78,8 @@ public sealed class TerminalApplication
                     await ShowLocalMusicAsync();
                 else if (selected == 6)
                     await ShowSettingsTransferAsync();
+                else if (selected == 7)
+                    GuideScreen.Show();
 
                 if (_importedSettings)
                     return;
@@ -109,7 +112,7 @@ public sealed class TerminalApplication
         var links = new[]
         {
             "Search", "Playlists", "Favorites", "Recently Played", "Themes",
-            "Local Music", "Backup & Restore", "Quit"
+            "Local Music", "Backup & Restore", "Keyboard Guide", "Quit"
         };
         var renderedWidth = -1;
         var renderedHeight = -1;
@@ -132,7 +135,7 @@ public sealed class TerminalApplication
                     favorites);
                 selectionDirtyPanel = null;
             }
-            else if (contentDirty && renderedWidth >= 0)
+            else if (contentDirty && renderedWidth >= 0 && TerminalLayout.Fits(Width(), Height()))
             {
                 DrawDashboardContent(
                     links, panel, linkSelection, recentSelection, favoriteSelection, favorites);
@@ -148,7 +151,7 @@ public sealed class TerminalApplication
                 ref renderedWidth,
                 ref renderedHeight,
                 HasFinishedTrack,
-                () => DrawNowPlaying(Math.Max(17, Height() - 8), Width()));
+                () => DrawNowPlaying(TerminalLayout.PlayerTop(Height()), Width()));
 
             switch (key.Key)
             {
@@ -178,9 +181,8 @@ public sealed class TerminalApplication
                     break;
                 case ConsoleKey.RightArrow:
                 case ConsoleKey.Tab:
-                    panel = panel == HomePanel.RecentFavorites
-                        ? HomePanel.QuickLinks
-                        : (HomePanel)((int)panel + 1);
+                    var panelDirection = key.Modifiers.HasFlag(ConsoleModifiers.Shift) ? -1 : 1;
+                    panel = (HomePanel)(((int)panel + 3 + panelDirection) % 3);
                     contentDirty = true;
                     break;
                 case ConsoleKey.Enter:
@@ -223,6 +225,22 @@ public sealed class TerminalApplication
                     break;
                 case ConsoleKey.Oem2:
                     return 0;
+                case TerminalKeys.TrackDetails:
+                    var detailsTrack = DashboardTrack(panel, recentSelection, favoriteSelection, favorites);
+                    if (detailsTrack is not null)
+                        DocumentScreen.ShowTrack(detailsTrack);
+                    else
+                        _status = "Select or play a song to see its details";
+                    renderedWidth = -1;
+                    break;
+                case TerminalKeys.AddToPlaylist:
+                    var playlistTrack = DashboardTrack(panel, recentSelection, favoriteSelection, favorites);
+                    if (playlistTrack is not null)
+                        await _playlistScreen.AddTrackAsync(playlistTrack);
+                    else
+                        _status = "Select or play a song to add it to a playlist";
+                    renderedWidth = -1;
+                    break;
                 case TerminalKeys.Favorite when panel == HomePanel.QuickLinks && _app.CurrentTrack is not null:
                     await ToggleFavoriteAsync(_app.CurrentTrack);
                     favorites = await SafeFavoritesAsync();
@@ -300,6 +318,14 @@ public sealed class TerminalApplication
         }
     }
 
+    private Track? DashboardTrack(HomePanel panel, int recent, int favorite, IReadOnlyList<Track> favorites) =>
+        panel switch
+        {
+            HomePanel.RecentlyPlayed when _app.RecentlyPlayed.Count > 0 => _app.RecentlyPlayed[recent],
+            HomePanel.RecentFavorites when favorites.Count > 0 => favorites[favorite],
+            _ => _app.CurrentTrack
+        };
+
     private async Task ShowSettingsTransferAsync()
     {
         var selected = 0;
@@ -315,7 +341,7 @@ public sealed class TerminalApplication
                 WriteMenuItem(2, 4 + index, Math.Min(36, Width() - 4), options[index], index == selected);
             WriteAt(2, 8, "Import creates a safety backup and then closes Musik.", ConsoleColor.DarkGray);
 
-            switch (Console.ReadKey(intercept: true).Key)
+            switch (ReadWithHelp().Key)
             {
                 case ConsoleKey.UpArrow:
                     selected = Previous(selected, options.Length);
@@ -397,7 +423,7 @@ public sealed class TerminalApplication
         while (true)
         {
             DrawLocalMusicMenu(options, selected);
-            switch (Console.ReadKey(intercept: true).Key)
+            switch (ReadWithHelp().Key)
             {
                 case ConsoleKey.UpArrow:
                     selected = Previous(selected, options.Length);
@@ -513,9 +539,10 @@ public sealed class TerminalApplication
             if (selectionDirty && renderedWidth >= 0)
             {
                 DrawResultRows(visibleTracks, selected, favoriteIds);
+                DrawStatus(TerminalLayout.PlayerTop(Height()) + 5, Width());
                 selectionDirty = false;
             }
-            else if (contentDirty && renderedWidth >= 0)
+            else if (contentDirty && renderedWidth >= 0 && TerminalLayout.Fits(Width(), Height()))
             {
                 DrawResultsContent(displayTitle, visibleTracks, selected, removeOnDelete, favoriteIds, collapsible,
                     removeTrack is not null);
@@ -534,9 +561,30 @@ public sealed class TerminalApplication
                 ref renderedWidth,
                 ref renderedHeight,
                 HasFinishedTrack,
-                () => DrawNowPlaying(Math.Max(10, Height() - 7), Width()));
+                () => DrawNowPlaying(TerminalLayout.PlayerTop(Height()), Width()));
             switch (key.Key)
             {
+                case ConsoleKey.PageUp:
+                case ConsoleKey.PageDown:
+                    selected = ListNavigation.Page(selected, visibleTracks.Count, TerminalLayout.SongRows(Height()),
+                        key.Key == ConsoleKey.PageUp ? -1 : 1);
+                    selectionDirty = true;
+                    break;
+                case ConsoleKey.Home:
+                case ConsoleKey.End:
+                    selected = key.Key == ConsoleKey.Home ? 0 : Math.Max(0, visibleTracks.Count - 1);
+                    selectionDirty = true;
+                    break;
+                case TerminalKeys.TrackDetails when visibleTracks.Count > 0:
+                    DocumentScreen.ShowTrack(visibleTracks[selected]);
+                    renderedWidth = -1;
+                    break;
+                case ConsoleKey.Oem2 when collapsible:
+                    return false;
+                case ConsoleKey.Oem2:
+                    await _searchScreen.ShowAsync();
+                    renderedWidth = -1;
+                    break;
                 case ConsoleKey.UpArrow when visibleTracks.Count > 0:
                     selected = selected == 0 ? visibleTracks.Count - 1 : selected - 1;
                     selectionDirty = true;
@@ -657,9 +705,9 @@ public sealed class TerminalApplication
         var rightX = leftWidth + 1;
         var rightWidth = width - rightX;
         var contentTop = 3;
-        var playerY = Math.Max(17, height - 8);
+        var playerY = TerminalLayout.PlayerTop(height);
         var contentHeight = playerY - contentTop;
-        var halfHeight = Math.Max(6, contentHeight / 2);
+        var halfHeight = Math.Max(4, contentHeight / 2);
         DrawBox(0, 0, width, 3, "");
         WriteCenteredMixed(1,
             ("M U S I ", ConsoleColor.White),
@@ -692,14 +740,12 @@ public sealed class TerminalApplication
         var rightX = leftWidth + 1;
         var rightWidth = width - rightX;
         const int contentTop = 3;
-        var playerY = Math.Max(17, height - 8);
+        var playerY = TerminalLayout.PlayerTop(height);
         var contentHeight = playerY - contentTop;
-        var halfHeight = Math.Max(6, contentHeight / 2);
+        var halfHeight = Math.Max(4, contentHeight / 2);
         var favoriteIds = favorites.Select(track => track.Id).ToHashSet(StringComparer.Ordinal);
 
-        for (var i = 0; i < links.Count; i++)
-            WriteMenuItem(2, contentTop + 2 + i, leftWidth - 4, links[i],
-                panel == HomePanel.QuickLinks && i == linkSelection);
+        DrawQuickLinks(links, linkSelection, panel == HomePanel.QuickLinks, leftWidth, contentHeight);
 
         DrawTrackPreview(rightX + 2, contentTop + 2, rightWidth - 4, halfHeight - 3,
             _app.RecentlyPlayed, recentSelection, panel == HomePanel.RecentlyPlayed, favoriteIds);
@@ -716,14 +762,11 @@ public sealed class TerminalApplication
             favoriteIds);
 
         DrawNowPlaying(playerY, width);
-        WriteAt(
-            2,
-            playerY + 5,
-            TerminalText.PadRight(
-                $"Play: Enter   Lyrics: L   Download: D   P/N: Previous/Next   Pause: Space   Shuffle: R [{(_playbackQueue.Shuffle ? "ON" : "OFF")}]",
-                width - 4),
-            ConsoleColor.DarkGray);
-        DrawVolumeControl(Math.Min(height - 2, playerY + 6), width);
+        DrawStatus(playerY + 5, width);
+        WriteAt(2, playerY + 6, TerminalText.PadRight(panel == HomePanel.QuickLinks
+            ? "Enter: Open  Tab: Panels  /: Search  F1: Guide  Q: Quit"
+            : "Enter: Play  F: Fav  A: Add  I: Info  F1: Guide  Q: Quit", width - 4), ConsoleColor.Cyan);
+        DrawVolumeControl(playerY + 7, width);
     }
 
     private void DrawDashboardPanelContent(
@@ -740,21 +783,15 @@ public sealed class TerminalApplication
         var rightX = leftWidth + 1;
         var rightWidth = width - rightX;
         const int contentTop = 3;
-        var playerY = Math.Max(17, height - 8);
+        var playerY = TerminalLayout.PlayerTop(height);
         var contentHeight = playerY - contentTop;
-        var halfHeight = Math.Max(6, contentHeight / 2);
+        var halfHeight = Math.Max(4, contentHeight / 2);
         var favoriteIds = favorites.Select(track => track.Id).ToHashSet(StringComparer.Ordinal);
 
         switch (panel)
         {
             case HomePanel.QuickLinks:
-                for (var index = 0; index < links.Count; index++)
-                    WriteMenuItem(
-                        2,
-                        contentTop + 2 + index,
-                        leftWidth - 4,
-                        links[index],
-                        index == linkSelection);
+                DrawQuickLinks(links, linkSelection, true, leftWidth, contentHeight);
                 break;
             case HomePanel.RecentlyPlayed:
                 DrawTrackPreview(
@@ -781,6 +818,21 @@ public sealed class TerminalApplication
         }
     }
 
+    private static void DrawQuickLinks(IReadOnlyList<string> links, int selected, bool focused, int width, int height)
+    {
+        var rows = Math.Max(1, height - 2);
+        var first = ListNavigation.FirstVisible(selected, links.Count, rows);
+        for (var row = 0; row < rows; row++)
+        {
+            var index = first + row;
+            WriteMenuItem(2, 4 + row, width - 4, index < links.Count ? links[index] : "",
+                focused && index == selected);
+        }
+    }
+
+    private void DrawStatus(int y, int width) =>
+        WriteAt(2, y, TerminalText.PadRight(_status, width - 4), ConsoleColor.Gray);
+
     private void DrawResults(
         string title,
         IReadOnlyList<Track> tracks,
@@ -792,7 +844,7 @@ public sealed class TerminalApplication
     {
         var width = Width();
         var height = Height();
-        var listBottom = Math.Max(10, height - 7);
+        var listBottom = TerminalLayout.PlayerTop(height);
 
         DrawBox(0, 0, width, listBottom, $" {title.ToUpperInvariant()} ");
         WriteAt(2, 2, "TYPE   TITLE / ARTIST", ConsoleColor.DarkGray);
@@ -811,17 +863,18 @@ public sealed class TerminalApplication
     {
         var width = Width();
         var height = Height();
-        var listBottom = Math.Max(10, height - 7);
+        var listBottom = TerminalLayout.PlayerTop(height);
         DrawResultRows(tracks, selected, favoriteIds);
 
         DrawNowPlaying(listBottom, width);
-        var favoriteHint = removeOnDelete ? "F/Delete: Remove" : "F: Favorite";
-        var expandHint = collapsible ? "   E: Expand/Collapse" : "";
-        var removeHint = playlistRemoval ? "Delete: Remove song   " : "";
-        WriteAt(2, Math.Min(height - 1, listBottom + 5),
-            $"{removeHint}Arrows: Navigate   Enter: Play   A: Playlist   L: Lyrics   D: Download   P/N: Previous/Next   " +
-            $"{favoriteHint}{expandHint}   R: Shuffle [{(_playbackQueue.Shuffle ? "ON" : "OFF")}]   Q: Home",
-            ConsoleColor.DarkGray);
+        DrawBox(0, listBottom + 4, width, 5, "");
+        DrawStatus(listBottom + 5, width);
+        var contextHint = playlistRemoval || removeOnDelete ? "Del:Remove " : collapsible ? "E:More " : "";
+        WriteAt(2, listBottom + 6, TerminalText.PadRight(
+            $"{contextHint}Enter:Play F:Fav A:Add I:Info F1:Guide", width - 4), ConsoleColor.Cyan);
+        WriteAt(2, listBottom + 7, TerminalText.PadRight(width >= 100
+            ? "Space: Pause  N/P: Next/Prev  L: Lyrics  D: Download  +/-: Volume  /: Search  Q: Back"
+            : "Space: Pause  N/P: Next/Prev  +/-: Vol  Q: Back", width - 4), ConsoleColor.DarkGray);
     }
 
     private static void DrawResultRows(
@@ -831,8 +884,8 @@ public sealed class TerminalApplication
     {
         var width = Width();
         var height = Height();
-        var listBottom = Math.Max(10, height - 7);
-        var rows = Math.Max(1, listBottom - 5);
+        var listBottom = TerminalLayout.PlayerTop(height);
+        var rows = TerminalLayout.SongRows(height);
         var first = Math.Clamp(selected - rows / 2, 0, Math.Max(0, tracks.Count - rows));
         var last = Math.Min(tracks.Count, first + rows);
 
@@ -858,11 +911,14 @@ public sealed class TerminalApplication
         if (tracks.Count == 0)
             WriteAt(2, 4, Fit("This playlist is empty. Add songs with A from Search or Local Music.", width - 4),
                 ConsoleColor.DarkGray);
+        var range = tracks.Count == 0 ? "0 songs" : $"{first + 1}-{last} / {tracks.Count}";
+        WriteAt(2, 2, TerminalText.PadRight($"TITLE / ARTIST   [{range}]", width - 16), ConsoleColor.DarkGray);
     }
 
     private void DrawNowPlaying(int y, int width)
     {
-        DrawBox(0, y, width, 4, "");
+        var state = _app.IsPaused ? "PAUSED" : _app.IsPlaying ? "PLAYING" : "READY";
+        var heading = $" {state} | Vol {_app.Volume}% | Shuffle {(_playbackQueue.Shuffle ? "ON" : "OFF")} ";
         var track = _app.CurrentTrack;
         var title = track is null
             ? _status
@@ -873,22 +929,13 @@ public sealed class TerminalApplication
             ? $"{FormatTime(elapsed)} / --:--"
             : $"{FormatTime(elapsed)} / {FormatTime(duration.Value)}";
 
-        WriteAt(
-            2,
-            y + 1,
-            TerminalText.PadRight($"> Currently playing: {title}", width - times.Length - 6),
-            _app.IsPlaying ? ConsoleColor.Cyan : ConsoleColor.DarkGray);
-        WriteAt(Math.Max(2, width - times.Length - 2), y + 1, times, ConsoleColor.Gray);
-
-        var barWidth = Math.Max(10, width - 4);
+        var barWidth = Math.Max(0, width - 4);
         var progress = duration is { TotalSeconds: > 0 }
             ? Math.Clamp(elapsed.TotalSeconds / duration.Value.TotalSeconds, 0, 1)
             : 0;
         var filled = (int)(barWidth * progress);
-        if (filled > 0)
-            WriteAt(2, y + 2, new string(' ', filled), ConsoleColor.Blue, ConsoleColor.Blue);
-        if (filled < barWidth)
-            WriteAt(2 + filled, y + 2, new string('░', barWidth - filled), ConsoleColor.DarkGray);
+        _playbackPanel.Draw(new PlaybackPanelFrame(y, width, TerminalCanvas.Version, ThemeManager.Current,
+            heading, title, times, _app.IsPlaying, filled));
     }
 
     private static void DrawTrackPreview(

@@ -69,6 +69,7 @@ if (-not (Test-Path -LiteralPath $ytdlPath)) {
 }
 
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "README.md") -Destination $publishDirectory
+Copy-Item -LiteralPath (Join-Path $repositoryRoot "GUIDE.md") -Destination $publishDirectory
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "LICENSE") -Destination $publishDirectory
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "THIRD-PARTY-NOTICES.md") -Destination $publishDirectory
 

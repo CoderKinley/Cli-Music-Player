@@ -13,11 +13,13 @@ public sealed class ThemesScreen
     {
         var themes = Enum.GetValues<TerminalTheme>();
         var selected = Array.IndexOf(themes, ThemeManager.Current);
-        Draw(themes, selected);
+        var width = -1;
+        var height = -1;
 
         while (true)
         {
-            switch (Console.ReadKey(intercept: true).Key)
+            var current = selected;
+            switch (TerminalInput.ReadResponsive(() => Draw(themes, current), ref width, ref height).Key)
             {
                 case ConsoleKey.UpArrow:
                     selected = selected == 0 ? themes.Length - 1 : selected - 1;
@@ -46,7 +48,7 @@ public sealed class ThemesScreen
         TerminalCanvas.DrawBox(0, 0, TerminalCanvas.Width, 9, " THEMES ");
         TerminalCanvas.WriteAt(
             2, 2,
-            "Up/Down: Select    Enter: Apply    Q: Home",
+            "Up/Down: Select   Enter: Apply   F1: Guide   Q: Back",
             ConsoleColor.DarkGray);
         DrawOptions(themes, selected);
     }
