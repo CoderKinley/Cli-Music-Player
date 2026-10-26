@@ -21,7 +21,14 @@ A keyboard-driven YouTube music player for the Windows terminal.
 
 ## Install
 
-Download `Musik-Setup.exe` from the
+Musik is published in the [WinGet community repository](https://github.com/microsoft/winget-pkgs/tree/master/manifests/c/CoderKinley/Musik)
+as `CoderKinley.Musik`. Install it from PowerShell or Windows Terminal:
+
+```powershell
+winget install --id CoderKinley.Musik --exact --source winget
+```
+
+Or download `Musik-Setup.exe` from the
 [latest GitHub release](https://github.com/CoderKinley/Cli-Music-Player/releases/latest).
 After installation, open a new terminal and run:
 
@@ -34,6 +41,9 @@ Check for and install updates with:
 ```powershell
 musik update
 ```
+
+The WinGet catalog can lag behind GitHub releases. After installing through
+WinGet, run `musik update` to get the latest GitHub release.
 
 ## Source requirements
 
