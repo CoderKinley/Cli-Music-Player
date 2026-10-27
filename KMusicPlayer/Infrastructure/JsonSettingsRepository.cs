@@ -23,7 +23,7 @@ public sealed class JsonSettingsRepository : ISettingsRepository
             new PlayerSettings(
                 Math.Clamp(volume, 0, 100),
                 current?.Shuffle ?? false,
-                current?.Theme ?? "Blue"),
+                current?.Theme ?? "Blue", current?.Audio),
             cancellationToken);
     }
 
@@ -34,7 +34,7 @@ public sealed class JsonSettingsRepository : ISettingsRepository
     {
         var current = await LoadAsync(cancellationToken);
         await SaveAsync(
-            new PlayerSettings(current?.Volume ?? 70, enabled, current?.Theme ?? "Blue"),
+            new PlayerSettings(current?.Volume ?? 70, enabled, current?.Theme ?? "Blue", current?.Audio),
             cancellationToken);
     }
 
@@ -45,8 +45,18 @@ public sealed class JsonSettingsRepository : ISettingsRepository
     {
         var current = await LoadAsync(cancellationToken);
         await SaveAsync(
-            new PlayerSettings(current?.Volume ?? 70, current?.Shuffle ?? false, theme),
+            new PlayerSettings(current?.Volume ?? 70, current?.Shuffle ?? false, theme, current?.Audio),
             cancellationToken);
+    }
+
+    public async Task<AudioPreferences> GetAudioPreferencesAsync(CancellationToken cancellationToken = default) =>
+        ((await LoadAsync(cancellationToken))?.Audio ?? new AudioPreferences()).Normalize();
+
+    public async Task SaveAudioPreferencesAsync(AudioPreferences preferences, CancellationToken cancellationToken = default)
+    {
+        var current = await LoadAsync(cancellationToken);
+        await SaveAsync(new PlayerSettings(current?.Volume ?? 70, current?.Shuffle ?? false,
+            current?.Theme ?? "Blue", preferences.Normalize()), cancellationToken);
     }
 
     private async Task<PlayerSettings?> LoadAsync(CancellationToken cancellationToken)
@@ -75,5 +85,6 @@ public sealed class JsonSettingsRepository : ISettingsRepository
     private sealed record PlayerSettings(
         int Volume,
         bool Shuffle = false,
-        string Theme = "Blue");
+        string Theme = "Blue",
+        AudioPreferences? Audio = null);
 }
