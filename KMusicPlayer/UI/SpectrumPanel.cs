@@ -141,7 +141,58 @@ public sealed class SpectrumPanel
                             top + y * sh + ny * energy * sh * 0.32);
                 }
         }
-        else if (style is SpectrumStyle.CatHalo or SpectrumStyle.Orbit)
+        else if (style == SpectrumStyle.CatHalo)
+        {
+            var bass = Enumerable.Range(0, 8).Average(i => Level(i / 48d));
+            var radius = Math.Max(1, Math.Min(pw * 0.29, ph * 0.25)) * (1 + bass * 0.12);
+            var outline = new List<(double X, double Y)>();
+            void AddPoint(double x, double y) => outline.Add((cx + x * radius, cy + y * radius));
+            void AddEdge(double x1, double y1, double x2, double y2)
+            {
+                var distance = Math.Sqrt(Math.Pow(x2 - x1, 2) + Math.Pow(y2 - y1, 2));
+                var steps = Math.Max(2, (int)Math.Ceiling(distance * radius * 1.5));
+                for (var step = 1; step <= steps; step++)
+                    AddPoint(x1 + (x2 - x1) * step / steps, y1 + (y2 - y1) * step / steps);
+            }
+            // Continue the face into the ears; a full circle would cross their interiors.
+            var startAngle = Math.Atan2(-0.61, 0.78);
+            var endAngle = Math.PI - startAngle;
+            var arcSteps = Math.Max(40, (int)Math.Ceiling(radius * (endAngle - startAngle) * 1.5));
+            for (var step = 0; step <= arcSteps; step++)
+            {
+                var angle = startAngle + (endAngle - startAngle) * step / arcSteps;
+                AddPoint(Math.Cos(angle), Math.Sin(angle));
+            }
+            var earTop = -1.45 - bass * 0.28;
+            AddEdge(-0.78, -0.61, -0.80, earTop);
+            AddEdge(-0.80, earTop, -0.27, -0.98);
+            var foreheadSteps = Math.Max(8, (int)Math.Ceiling(radius * 0.8));
+            for (var step = 1; step <= foreheadSteps; step++)
+            {
+                var t = step / (double)foreheadSteps;
+                AddPoint(-0.27 + 0.54 * t, -0.98 + 0.09 * Math.Sin(Math.PI * t));
+            }
+            AddEdge(0.27, -0.98, 0.80, earTop);
+            AddEdge(0.80, earTop, 0.78, -0.61);
+
+            for (var i = 0; i < outline.Count; i++)
+            {
+                var point = outline[i];
+                Dot(point.X, point.Y);
+                if (i % 8 != 0) continue;
+                var previous = outline[(i + outline.Count - 2) % outline.Count];
+                var next = outline[(i + 2) % outline.Count];
+                var dx = next.X - previous.X;
+                var dy = next.Y - previous.Y;
+                var length = Math.Sqrt(dx * dx + dy * dy);
+                if (length < 0.001) continue;
+                var energy = Level((point.X - (cx - radius)) / (2 * radius));
+                if (energy > 0.025)
+                    Line(point.X, point.Y, point.X + dy / length * energy * radius * 0.45,
+                        point.Y - dx / length * energy * radius * 0.45);
+            }
+        }
+        else if (style == SpectrumStyle.Orbit)
         {
             var bass = Enumerable.Range(0, 8).Average(i => Level(i / 48d));
             var radius = Math.Max(1, Math.Min(pw * 0.29, ph * 0.25)) * (1 + bass * 0.12);
@@ -154,21 +205,8 @@ public sealed class SpectrumPanel
                 if (i % 4 == 0)
                     Line(cx + Math.Cos(angle) * (r + 1), cy + Math.Sin(angle) * (r + 1),
                         cx + Math.Cos(angle) * (r + 1 + radius * energy * 0.65), cy + Math.Sin(angle) * (r + 1 + radius * energy * 0.65));
-                if (style == SpectrumStyle.Orbit)
-                    Dot(cx + Math.Cos(angle) * radius * 0.7, cy + Math.Sin(angle) * radius * 0.7);
+                Dot(cx + Math.Cos(angle) * radius * 0.7, cy + Math.Sin(angle) * radius * 0.7);
             }
-            if (style == SpectrumStyle.CatHalo)
-                foreach (var side in new[] { -1, 1 })
-                {
-                    var x1 = cx + side * radius * 0.78;
-                    var x2 = cx + side * radius * 0.80;
-                    var x3 = cx + side * radius * 0.27;
-                    var y1 = cy - radius * 0.61;
-                    var y2 = cy - radius * (1.45 + bass * 0.28);
-                    var y3 = cy - radius * 0.98;
-                    Line(x1, y1, x2, y2); Line(x2, y2, x3, y3);
-                    Line(x1 + side * 2, y1 - 1, x2 + side, y2 + 3);
-                }
         }
         else if (style == SpectrumStyle.AuroraBars)
         {

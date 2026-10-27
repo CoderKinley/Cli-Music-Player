@@ -57,6 +57,30 @@ internal static class AudioRegression
             if (style == SpectrumStyle.Off)
                 check(active.All(row => row.All(c => c == ' ')), "Off left spectrum pixels on screen");
         }
+        {
+            const int width = 72;
+            const int height = 18;
+            var quiet = SpectrumPanel.Render(width, height, SpectrumStyle.CatHalo, []);
+            var active = SpectrumPanel.Render(width, height, SpectrumStyle.CatHalo,
+                Enumerable.Repeat(0.8, 48).ToArray());
+            bool Pixel(string[] frame, int x, int y)
+            {
+                int[] bits = [1, 8, 2, 16, 4, 32, 64, 128];
+                var cell = frame[y / 4][x / 2];
+                return cell >= 0x2800 && ((cell - 0x2800) & bits[y % 4 * 2 + x % 2]) != 0;
+            }
+            var cx = (width * 2 - 1) / 2d;
+            var cy = (height * 4 - 1) / 2d;
+            var radius = Math.Min(width * 2 * 0.29, height * 4 * 0.25);
+            check(!Pixel(quiet, (int)Math.Round(cx), (int)Math.Round(cy - radius)),
+                "Cat Halo still draws a circle through the forehead");
+            check(!Pixel(quiet, (int)Math.Round(cx - radius * 0.61), (int)Math.Round(cy - radius * 1.1))
+                && !Pixel(active, (int)Math.Round(cx - radius * 0.61), (int)Math.Round(cy - radius * 1.1)),
+                "Cat Halo fills the inside of an ear");
+            check(Enumerable.Range((int)Math.Ceiling(cx + radius + 2), (int)(radius * 0.45))
+                .Any(x => Enumerable.Range((int)cy - 3, 7).Any(y => Pixel(active, x, y) && !Pixel(quiet, x, y))),
+                "Cat Halo audio strokes do not extend outward from the face");
+        }
         foreach (var (width, height) in new[] { (34, 3), (60, 12), (90, 20) })
         {
             var wave = SpectrumPanel.Render(width, height, SpectrumStyle.AuroraWave,
