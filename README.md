@@ -18,6 +18,8 @@ A keyboard-driven YouTube music player for the Windows terminal.
 - Previous-session playback restoration
 - Spotify and SoundCloud terminal themes
 - Responsive, low-flicker terminal layout
+- Live music spectrum: Cat Outline, Cat Halo, Aurora Bars, Aurora Wave, Orbit, and Silk Wave
+- Preloaded track transitions with adjustable equal-power crossfades and edge silence trimming
 - Searchable in-app keyboard guide with `F1`, full song details with `I`, and page navigation
 
 ## Install
@@ -50,7 +52,7 @@ WinGet, run `musik update` to get the latest GitHub release.
 
 - Windows
 - .NET 10 SDK when running from source
-- `mpv` available on `PATH`
+- `mpv` 0.41 or newer available on `PATH` (included in packaged releases)
 
 ## Run from source
 
@@ -97,6 +99,37 @@ Open **Local Music** from the Home screen to play downloaded files offline. The
 default folder is `Music\Musik Downloads`; choose **Change music folder** to use
 another directory. The selection is saved in
 `%LOCALAPPDATA%\KMusicPlayer\local-library.json`.
+
+Open **Spectrum** in Quick Links to preview and select a visualizer, turn it off,
+choose a crossfade duration (Off, 1.5, 3, or 5 seconds), or toggle silence trimming.
+Short tracks automatically use shorter fades so the transition cannot skip most
+of the song. Space pauses the live preview, and +/- adjusts volume.
+Cat Outline, 3-second crossfades, and silence trimming are enabled by default.
+The home screen shows recent favorites above the untitled live spectrum;
+**Recently Played** remains available in Quick Links.
+
+On Windows 11 / Windows builds 20348+, the visualizers capture only Musik's
+actual mixed output and measure 48 logarithmic FFT bands. Overlapping Hann
+windows update about 94 times per second, with a 60 fps rendering target,
+fast attack, quick release, and dynamic headroom so bars can fall between hits.
+Stereo energy is preserved, including opposite-phase channels. Earlier Windows
+builds retain the filter-bank analysis fallback. The sea-glass, silver, and iris
+palette is unchanged. Visualizers settle when paused, silent, or no fresh audio
+arrives. Tracks preload in the background, and queues continue on other screens.
+
+**Next**, **Previous**, and manual selection start the replacement at the selected
+volume as soon as it is ready, while the previous song fades underneath it. There
+is no incoming fade-in delay. Highlighted songs preload independently from the
+queued next song; pressing Enter bypasses the hover debounce. The current song
+stays audible during loading, and cleanup of unused preloads runs off the switch
+path. **Aurora Wave** mirrors the live spectrum above and below its centerline. Automatic transitions use balanced
+equal-power crossfades. Both envelopes run per audio sample inside mpv/FFmpeg,
+avoiding stepped volume changes. Slow sources can still take time to load.
+Silence trimming removes the leading quiet section and scans the last 30 seconds
+for trailing silence below -55 dB, preserving pauses inside the song. If a source
+cannot be scanned or has no finite duration, playback continues with its original
+ending. Slow network buffering can still delay a transition. Audio processing
+changes apply fully from the next track; the spectrum choice applies immediately.
 
 Use **Backup & Restore** on the Home screen to export favorites, recent tracks,
 volume, shuffle, theme, playback session, saved lyrics, and the local-library

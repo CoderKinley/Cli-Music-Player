@@ -67,7 +67,8 @@ public static class TerminalInput
                 nextRedrawAt = Environment.TickCount64 + redrawIntervalMilliseconds;
             }
 
-            Thread.Sleep(50);
+            // Keep key polling inexpensive without limiting animated panels to 20 frames/sec.
+            Thread.Sleep(periodicRedraw is null ? 20 : Math.Clamp(redrawIntervalMilliseconds / 4, 1, 10));
         }
 
         void DrawCurrentSize()

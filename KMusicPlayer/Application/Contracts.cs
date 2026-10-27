@@ -56,6 +56,17 @@ public interface ISettingsRepository
     Task SaveShuffleAsync(bool enabled, CancellationToken cancellationToken = default);
     Task<string> GetThemeAsync(CancellationToken cancellationToken = default);
     Task SaveThemeAsync(string theme, CancellationToken cancellationToken = default);
+    Task<AudioPreferences> GetAudioPreferencesAsync(CancellationToken cancellationToken = default);
+    Task SaveAudioPreferencesAsync(AudioPreferences preferences, CancellationToken cancellationToken = default);
+}
+
+public sealed record AudioPreferences(string Spectrum = "CatOutline", bool TrimSilence = true, double CrossfadeSeconds = 3)
+{
+    public AudioPreferences Normalize() => this with
+    {
+        Spectrum = Spectrum is "CatOutline" or "CatHalo" or "AuroraBars" or "AuroraWave" or "Orbit" or "SilkWave" or "Off" ? Spectrum : "CatOutline",
+        CrossfadeSeconds = double.IsFinite(CrossfadeSeconds) ? Math.Clamp(CrossfadeSeconds, 0, 5) : 3
+    };
 }
 
 public interface IPlaybackSessionRepository
@@ -104,6 +115,14 @@ public interface IAudioPlayer
     bool IsPaused { get; }
     int Volume { get; }
     TimeSpan Elapsed { get; }
+    IReadOnlyList<double> Spectrum => Array.Empty<double>();
+    bool ShouldTransition => false;
+    void Configure(AudioPreferences preferences) { }
+    Task PrepareAsync(Track track, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    Task WarmSelectionAsync(Track track, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    void Finish() => Stop();
+    Task TransitionAsync(Track track, bool automatic, CancellationToken cancellationToken = default) =>
+        PlayAsync(track, cancellationToken: cancellationToken);
     Task PlayAsync(
         Track track,
         TimeSpan? startPosition = null,

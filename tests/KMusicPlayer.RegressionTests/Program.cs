@@ -7,6 +7,16 @@ using KMusicPlayer.UI.Screens;
 using KMusicPlayer.UI.Themes;
 
 Console.OutputEncoding = Encoding.UTF8;
+if (args.Contains("--spectrum-preview"))
+{
+    var levels = new double[] { 0.8, 0.95, 0.6, 0.35, 0.7, 0.5, 0.4, 0.65, 0.3, 0.45, 0.2, 0.1 };
+    var frames = Enum.GetValues<SpectrumStyle>().Where(style => style != SpectrumStyle.Off)
+        .Select(style => new { Name = SpectrumPanel.Label(style), Rows = SpectrumPanel.Render(72, 18, style, levels) });
+    Directory.CreateDirectory("artifacts");
+    await File.WriteAllTextAsync("artifacts/spectrum-preview.json", System.Text.Json.JsonSerializer.Serialize(frames));
+    Console.WriteLine("Spectrum preview frames saved in artifacts/spectrum-preview.json");
+    return;
+}
 if (args.Contains("--width-probe"))
 {
     foreach (var sample in new[] { "A", "ヨルシカ", "🎵", "👩‍🎤", "🇧🇹", "❤️" })
@@ -273,12 +283,45 @@ try
     queue.RemoveTrack("one", 0);
     Check(!queue.HasTracks && await queue.NextAsync() is null && await queue.PreviousAsync() is null,
         "An emptied queue must be safe to navigate");
+
+    await using var automatic = new PlaybackQueueController(music);
+    await automatic.StartAsync([a, b, c], 0, false);
+    automatic.StartAutomaticPlayback();
+    async Task WaitForAsync(Func<bool> condition, string description)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(25);
+        Check(condition(), description);
+    }
+    await WaitForAsync(() => player.PreparedTrack == b, "Background queue did not preload the next track");
+    player.ShouldTransition = true;
+    await WaitForAsync(() => player.CurrentTrack == b, "Queue did not transition while the UI was idle");
+    await WaitForAsync(() => player.PreparedTrack == c, "Queue did not preload after advancing");
+    player.ShouldTransition = true;
+    await WaitForAsync(() => player.CurrentTrack == c, "Queue skipped or repeated a track during automatic transitions");
+    player.ShouldTransition = true;
+    await WaitForAsync(() => !automatic.HasTracks && !player.IsPlaying, "Final track did not finish its queue");
+    await automatic.StartAsync([a, b], 0, true);
+    player.ShouldTransition = true;
+    await WaitForAsync(() => player.CurrentTrack == b, "Loop queue did not advance");
+    player.ShouldTransition = true;
+    await WaitForAsync(() => player.CurrentTrack == a, "Loop queue did not return to its first track");
+    automatic.Stop();
+    await Task.Delay(200);
+    Check(!player.IsPlaying && !automatic.HasTracks, "Stopped background queue restarted playback");
 }
 finally
 {
     Directory.Delete(testDirectory, recursive: true);
 }
-Console.WriteLine($"PASS: {checks} regression checks (terminal text, playback rendering, themes, playlist persistence, playback queues).");
+try { await AudioRegression.RunAsync(Check, args.Contains("--audio-probe")); }
+catch (Exception exception)
+{
+    Console.Error.WriteLine(exception);
+    Environment.ExitCode = 1;
+    return;
+}
+Console.WriteLine($"PASS: {checks} regression checks (terminal text, playback rendering, themes, playlists, queues, spectrum, audio settings, fades).");
 
 sealed class FakeSource : IMusicSource
 {
@@ -297,10 +340,18 @@ sealed class FakePlayer : IAudioPlayer
     public bool IsPaused { get; private set; }
     public int Volume { get; private set; } = 50;
     public TimeSpan Elapsed => TimeSpan.Zero;
+    public bool ShouldTransition { get; set; }
+    public Track? PreparedTrack { get; private set; }
+    public Task PrepareAsync(Track track, CancellationToken cancellationToken = default)
+    {
+        PreparedTrack = track;
+        return Task.CompletedTask;
+    }
     public Task PlayAsync(Track track, TimeSpan? startPosition = null, CancellationToken cancellationToken = default)
     {
         CurrentTrack = track;
         IsPlaying = true;
+        ShouldTransition = false;
         return Task.CompletedTask;
     }
     public void ChangeVolume(int delta) => Volume += delta;

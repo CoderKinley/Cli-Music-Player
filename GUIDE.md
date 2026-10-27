@@ -92,6 +92,26 @@ selected favorite.
 
 ## Themes, backups, and terminal commands
 
+Open **Spectrum** from Quick Links to preview Cat Outline, Cat Halo, Aurora Bars,
+Aurora Wave (upward and downward), Orbit, or Silk Wave against the playing music. Use Up/Down to select and Enter to
+save. **Off** hides the visualization. **Crossfade** cycles through Off, 1.5, 3,
+and 5 seconds; **Trim silence** toggles trimming at track edges. Choices persist
+between sessions and are included in settings backups. The default is Cat Outline
+with a 3-second crossfade and silence trimming enabled.
+
+Manual song changes start the next song at the selected volume while the
+previous song fades out. Highlighted songs preload in the background separately
+from the queued next track; no incoming fade is applied to manual changes. Automatic transitions keep the balanced crossfade.
+On Windows 11 / builds 20348+, the live spectrum uses 48 FFT bands from Musik's
+mixed audio output, with fast attack/release and headroom for individual beats.
+Older Windows builds use the filter-bank fallback.
+
+Home shows recent favorites above an untitled spectrum panel. Tab switches between
+Quick Links and favorites; **Recently Played** opens from Quick Links. Queues keep
+advancing while other screens are open. Internal pauses are preserved; trailing
+silence detection scans the final 30 seconds of finite, seekable tracks. When a
+scan fails, the original ending is used. Live streams transition when they end.
+
 In **Themes**, use Up/Down to select Blue, Spotify, or SoundCloud and Enter to
 apply and save the theme. **Backup & Restore** exports or imports saved data.
 Import creates a safety backup and closes Musik after restoring settings.
