@@ -11,6 +11,7 @@ public sealed class TerminalApplication
 {
     private readonly MusicApplication _app;
     private readonly PlaybackPanel _playbackPanel = new();
+    private readonly SpectrumPanel _spectrumPanel = new();
     private readonly PlaybackQueueController _playbackQueue;
     private readonly SearchScreen _searchScreen;
     private readonly PlaylistScreen _playlistScreen;
@@ -33,6 +34,7 @@ public sealed class TerminalApplication
         _app = app;
         _playbackQueue = new PlaybackQueueController(app);
         _playbackQueue.SetShuffle(app.ShuffleEnabled);
+        _playbackQueue.StatusChanged += status => _status = status;
         if (Enum.TryParse<TerminalTheme>(app.ThemeName, true, out var savedTheme))
             ThemeManager.Apply(savedTheme);
         _searchScreen = new SearchScreen(
@@ -56,12 +58,13 @@ public sealed class TerminalApplication
     public async Task RunAsync()
     {
         Console.CursorVisible = false;
+        _playbackQueue.StartAutomaticPlayback();
         try
         {
             while (true)
             {
                 var selected = await ShowDashboardAsync();
-                if (selected is -1 or 8)
+                if (selected is -1 or 9)
                     return;
 
                 if (selected == 0)
@@ -75,10 +78,12 @@ public sealed class TerminalApplication
                 else if (selected == 4)
                     await _themesScreen.ShowAsync();
                 else if (selected == 5)
-                    await ShowLocalMusicAsync();
+                    await new SpectrumScreen(_app).ShowAsync();
                 else if (selected == 6)
-                    await ShowSettingsTransferAsync();
+                    await ShowLocalMusicAsync();
                 else if (selected == 7)
+                    await ShowSettingsTransferAsync();
+                else if (selected == 8)
                     GuideScreen.Show();
 
                 if (_importedSettings)
@@ -87,6 +92,7 @@ public sealed class TerminalApplication
         }
         finally
         {
+            await _playbackQueue.DisposeAsync();
             try
             {
                 if (!_importedSettings)
@@ -107,30 +113,30 @@ public sealed class TerminalApplication
     {
         var panel = HomePanel.QuickLinks;
         var linkSelection = 0;
-        var recentSelection = 0;
         var favoriteSelection = 0;
         var links = new[]
         {
             "Search", "Playlists", "Favorites", "Recently Played", "Themes",
-            "Local Music", "Backup & Restore", "Keyboard Guide", "Quit"
+            "Spectrum", "Local Music", "Backup & Restore", "Keyboard Guide", "Quit"
         };
         var renderedWidth = -1;
         var renderedHeight = -1;
         var contentDirty = false;
         HomePanel? selectionDirtyPanel = null;
         var favorites = await SafeFavoritesAsync();
+        var lastPlaybackRedraw = 0L;
 
         while (true)
         {
-            recentSelection = ClampSelection(recentSelection, _app.RecentlyPlayed.Count);
             favoriteSelection = ClampSelection(favoriteSelection, favorites.Count);
+            if (panel == HomePanel.RecentFavorites && favorites.Count > 0)
+                _ = _app.WarmSelectionAsync(favorites[favoriteSelection]);
             if (selectionDirtyPanel is not null && renderedWidth >= 0)
             {
                 DrawDashboardPanelContent(
                     selectionDirtyPanel.Value,
                     links,
                     linkSelection,
-                    recentSelection,
                     favoriteSelection,
                     favorites);
                 selectionDirtyPanel = null;
@@ -138,28 +144,36 @@ public sealed class TerminalApplication
             else if (contentDirty && renderedWidth >= 0 && TerminalLayout.Fits(Width(), Height()))
             {
                 DrawDashboardContent(
-                    links, panel, linkSelection, recentSelection, favoriteSelection, favorites);
+                    links, panel, linkSelection, favoriteSelection, favorites);
                 contentDirty = false;
             }
             var currentPanel = panel;
             var currentLink = linkSelection;
-            var currentRecent = recentSelection;
             var currentFavorite = favoriteSelection;
             var key = ReadResponsive(
                 () => DrawDashboard(
-                    links, currentPanel, currentLink, currentRecent, currentFavorite, favorites),
+                    links, currentPanel, currentLink, currentFavorite, favorites),
                 ref renderedWidth,
                 ref renderedHeight,
                 HasFinishedTrack,
-                () => DrawNowPlaying(TerminalLayout.PlayerTop(Height()), Width()));
+                () =>
+                {
+                    if (Environment.TickCount64 - lastPlaybackRedraw >= 250)
+                    {
+                        DrawNowPlaying(TerminalLayout.PlayerTop(Height()), Width());
+                        DrawStatus(TerminalLayout.PlayerTop(Height()) + 5, Width());
+                        lastPlaybackRedraw = Environment.TickCount64;
+                    }
+                    DrawDashboardSpectrum();
+                    if (currentPanel == HomePanel.RecentFavorites && favorites.Count > 0)
+                        _ = _app.WarmSelectionAsync(favorites[ClampSelection(currentFavorite, favorites.Count)]);
+                }, redrawIntervalMilliseconds: 16);
 
             switch (key.Key)
             {
                 case ConsoleKey.UpArrow:
                     if (panel == HomePanel.QuickLinks)
                         linkSelection = Previous(linkSelection, links.Length);
-                    else if (panel == HomePanel.RecentlyPlayed)
-                        recentSelection = Previous(recentSelection, _app.RecentlyPlayed.Count);
                     else
                         favoriteSelection = Previous(favoriteSelection, favorites.Count);
                     selectionDirtyPanel = panel;
@@ -167,8 +181,6 @@ public sealed class TerminalApplication
                 case ConsoleKey.DownArrow:
                     if (panel == HomePanel.QuickLinks)
                         linkSelection = Next(linkSelection, links.Length);
-                    else if (panel == HomePanel.RecentlyPlayed)
-                        recentSelection = Next(recentSelection, _app.RecentlyPlayed.Count);
                     else
                         favoriteSelection = Next(favoriteSelection, favorites.Count);
                     selectionDirtyPanel = panel;
@@ -182,15 +194,13 @@ public sealed class TerminalApplication
                 case ConsoleKey.RightArrow:
                 case ConsoleKey.Tab:
                     var panelDirection = key.Modifiers.HasFlag(ConsoleModifiers.Shift) ? -1 : 1;
-                    panel = (HomePanel)(((int)panel + 3 + panelDirection) % 3);
+                    panel = (HomePanel)(((int)panel + 2 + panelDirection) % 2);
                     contentDirty = true;
                     break;
                 case ConsoleKey.Enter:
                     if (panel == HomePanel.QuickLinks)
                         return linkSelection;
-                    if (panel == HomePanel.RecentlyPlayed && _app.RecentlyPlayed.Count > 0)
-                        await StartQueueAsync(_app.RecentlyPlayed, recentSelection, loop: true);
-                    else if (panel == HomePanel.RecentFavorites && favorites.Count > 0)
+                    if (panel == HomePanel.RecentFavorites && favorites.Count > 0)
                         await StartQueueAsync(favorites, favoriteSelection, loop: true);
                     contentDirty = true;
                     break;
@@ -201,8 +211,6 @@ public sealed class TerminalApplication
                 case TerminalKeys.Lyrics:
                     var dashboardLyricsTrack = panel switch
                     {
-                        HomePanel.RecentlyPlayed when _app.RecentlyPlayed.Count > 0 =>
-                            _app.RecentlyPlayed[recentSelection],
                         HomePanel.RecentFavorites when favorites.Count > 0 => favorites[favoriteSelection],
                         _ => _app.CurrentTrack
                     };
@@ -215,8 +223,6 @@ public sealed class TerminalApplication
                 case TerminalKeys.Download:
                     var dashboardDownloadTrack = panel switch
                     {
-                        HomePanel.RecentlyPlayed when _app.RecentlyPlayed.Count > 0 =>
-                            _app.RecentlyPlayed[recentSelection],
                         HomePanel.RecentFavorites when favorites.Count > 0 => favorites[favoriteSelection],
                         _ => _app.CurrentTrack
                     };
@@ -226,7 +232,7 @@ public sealed class TerminalApplication
                 case ConsoleKey.Oem2:
                     return 0;
                 case TerminalKeys.TrackDetails:
-                    var detailsTrack = DashboardTrack(panel, recentSelection, favoriteSelection, favorites);
+                    var detailsTrack = DashboardTrack(panel, favoriteSelection, favorites);
                     if (detailsTrack is not null)
                         DocumentScreen.ShowTrack(detailsTrack);
                     else
@@ -234,7 +240,7 @@ public sealed class TerminalApplication
                     renderedWidth = -1;
                     break;
                 case TerminalKeys.AddToPlaylist:
-                    var playlistTrack = DashboardTrack(panel, recentSelection, favoriteSelection, favorites);
+                    var playlistTrack = DashboardTrack(panel, favoriteSelection, favorites);
                     if (playlistTrack is not null)
                         await _playlistScreen.AddTrackAsync(playlistTrack);
                     else
@@ -248,11 +254,6 @@ public sealed class TerminalApplication
                     break;
                 case TerminalKeys.Favorite when panel == HomePanel.RecentFavorites && favorites.Count > 0:
                     await ToggleFavoriteAsync(favorites[favoriteSelection]);
-                    favorites = await SafeFavoritesAsync();
-                    contentDirty = true;
-                    break;
-                case TerminalKeys.Favorite when panel == HomePanel.RecentlyPlayed && _app.RecentlyPlayed.Count > 0:
-                    await ToggleFavoriteAsync(_app.RecentlyPlayed[recentSelection]);
                     favorites = await SafeFavoritesAsync();
                     contentDirty = true;
                     break;
@@ -318,10 +319,9 @@ public sealed class TerminalApplication
         }
     }
 
-    private Track? DashboardTrack(HomePanel panel, int recent, int favorite, IReadOnlyList<Track> favorites) =>
+    private Track? DashboardTrack(HomePanel panel, int favorite, IReadOnlyList<Track> favorites) =>
         panel switch
         {
-            HomePanel.RecentlyPlayed when _app.RecentlyPlayed.Count > 0 => _app.RecentlyPlayed[recent],
             HomePanel.RecentFavorites when favorites.Count > 0 => favorites[favorite],
             _ => _app.CurrentTrack
         };
@@ -397,6 +397,7 @@ public sealed class TerminalApplication
             if (!string.Equals(confirmation, "IMPORT", StringComparison.Ordinal))
                 return false;
 
+            _playbackQueue.Stop();
             await _settingsTransfer.ImportAsync(path);
             _importedSettings = true;
             Console.WriteLine();
@@ -549,6 +550,7 @@ public sealed class TerminalApplication
                 contentDirty = false;
             }
             var currentSelection = selected;
+            if (visibleTracks.Count > 0) _ = _app.WarmSelectionAsync(visibleTracks[selected]);
             var key = ReadResponsive(
                 () => DrawResults(
                     displayTitle,
@@ -561,7 +563,11 @@ public sealed class TerminalApplication
                 ref renderedWidth,
                 ref renderedHeight,
                 HasFinishedTrack,
-                () => DrawNowPlaying(TerminalLayout.PlayerTop(Height()), Width()));
+                () =>
+                {
+                    DrawNowPlaying(TerminalLayout.PlayerTop(Height()), Width());
+                    if (visibleTracks.Count > 0) _ = _app.WarmSelectionAsync(visibleTracks[currentSelection]);
+                });
             switch (key.Key)
             {
                 case ConsoleKey.PageUp:
@@ -695,7 +701,6 @@ public sealed class TerminalApplication
         IReadOnlyList<string> links,
         HomePanel panel,
         int linkSelection,
-        int recentSelection,
         int favoriteSelection,
         IReadOnlyList<Track> favorites)
     {
@@ -716,21 +721,20 @@ public sealed class TerminalApplication
 
         DrawBox(0, contentTop, leftWidth, contentHeight, " QUICK LINKS ");
 
-        DrawBox(rightX, contentTop, rightWidth, halfHeight, " RECENTLY PLAYED ");
+        DrawBox(rightX, contentTop, rightWidth, halfHeight, " RECENT FAVORITES ");
 
         var favoriteY = contentTop + halfHeight;
-        DrawBox(rightX, favoriteY, rightWidth, contentHeight - halfHeight, " RECENT FAVORITES ");
+        DrawBox(rightX, favoriteY, rightWidth, contentHeight - halfHeight, "");
 
         DrawBox(0, playerY + 4, width, Math.Max(3, height - playerY - 4), "");
         DrawDashboardContent(
-            links, panel, linkSelection, recentSelection, favoriteSelection, favorites);
+            links, panel, linkSelection, favoriteSelection, favorites);
     }
 
     private void DrawDashboardContent(
         IReadOnlyList<string> links,
         HomePanel panel,
         int linkSelection,
-        int recentSelection,
         int favoriteSelection,
         IReadOnlyList<Track> favorites)
     {
@@ -748,18 +752,8 @@ public sealed class TerminalApplication
         DrawQuickLinks(links, linkSelection, panel == HomePanel.QuickLinks, leftWidth, contentHeight);
 
         DrawTrackPreview(rightX + 2, contentTop + 2, rightWidth - 4, halfHeight - 3,
-            _app.RecentlyPlayed, recentSelection, panel == HomePanel.RecentlyPlayed, favoriteIds);
-
-        var favoriteY = contentTop + halfHeight;
-        DrawTrackPreview(
-            rightX + 2,
-            favoriteY + 2,
-            rightWidth - 4,
-            contentHeight - halfHeight - 3,
-            favorites,
-            favoriteSelection,
-            panel == HomePanel.RecentFavorites,
-            favoriteIds);
+            favorites, favoriteSelection, panel == HomePanel.RecentFavorites, favoriteIds);
+        DrawDashboardSpectrum();
 
         DrawNowPlaying(playerY, width);
         DrawStatus(playerY + 5, width);
@@ -773,7 +767,6 @@ public sealed class TerminalApplication
         HomePanel panel,
         IReadOnlyList<string> links,
         int linkSelection,
-        int recentSelection,
         int favoriteSelection,
         IReadOnlyList<Track> favorites)
     {
@@ -793,29 +786,29 @@ public sealed class TerminalApplication
             case HomePanel.QuickLinks:
                 DrawQuickLinks(links, linkSelection, true, leftWidth, contentHeight);
                 break;
-            case HomePanel.RecentlyPlayed:
+            case HomePanel.RecentFavorites:
                 DrawTrackPreview(
                     rightX + 2,
                     contentTop + 2,
                     rightWidth - 4,
                     halfHeight - 3,
-                    _app.RecentlyPlayed,
-                    recentSelection,
-                    true,
-                    favoriteIds);
-                break;
-            case HomePanel.RecentFavorites:
-                DrawTrackPreview(
-                    rightX + 2,
-                    contentTop + halfHeight + 2,
-                    rightWidth - 4,
-                    contentHeight - halfHeight - 3,
                     favorites,
                     favoriteSelection,
                     true,
                     favoriteIds);
                 break;
         }
+    }
+
+    private void DrawDashboardSpectrum()
+    {
+        var leftWidth = Math.Clamp(Width() / 4, 22, 30);
+        var rightX = leftWidth + 1;
+        var contentHeight = TerminalLayout.PlayerTop(Height()) - 3;
+        var halfHeight = Math.Max(4, contentHeight / 2);
+        var style = Enum.TryParse<SpectrumStyle>(_app.AudioPreferences.Spectrum, out var saved) ? saved : SpectrumStyle.CatOutline;
+        _spectrumPanel.Draw(rightX + 1, 4 + halfHeight, Width() - rightX - 2,
+            contentHeight - halfHeight - 2, style, _app.Spectrum);
     }
 
     private static void DrawQuickLinks(IReadOnlyList<string> links, int selected, bool focused, int width, int height)
@@ -1234,7 +1227,6 @@ public sealed class TerminalApplication
     private enum HomePanel
     {
         QuickLinks,
-        RecentlyPlayed,
         RecentFavorites
     }
 

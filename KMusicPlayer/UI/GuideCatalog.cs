@@ -8,7 +8,7 @@ public static class GuideCatalog
     [
         new("Navigation", "F1 / ?", "Open this keyboard guide", "Browsing screens and text prompts; F1 also works while typing."),
         new("Navigation", "Up / Down", "Move the selection", "Home panels, song lists, playlists, and themes."),
-        new("Navigation", "Tab / Shift+Tab", "Focus the next / previous Home panel", "Home: Quick Links, Recently Played, Recent Favorites."),
+        new("Navigation", "Tab / Shift+Tab", "Focus the next / previous Home panel", "Home: Quick Links and Recent Favorites. Recently Played is in Quick Links."),
         new("Navigation", "Left / Right", "Focus the previous / next Home panel", "Home; in the guide, switch categories."),
         new("Navigation", "PgUp / PgDn", "Move one page through a list", "Song lists, playlist library, guide, lyrics, and track details."),
         new("Navigation", "Home / End", "Jump to the first / last item", "Song lists, playlist library, guide, lyrics, and track details."),
@@ -35,6 +35,7 @@ public static class GuideCatalog
         new("Lyrics", "E", "Paste or edit lyrics manually", "Lyrics page. Enter .save on its own line to save, or .cancel to cancel."),
         new("Lyrics", ".save / .cancel", "Save / discard pasted lyrics", "Manual lyrics editor; these are typed commands, not keyboard shortcuts."),
         new("Settings", "Arrows, Enter", "Choose and apply a theme", "Themes: Blue, Spotify, and SoundCloud."),
+        new("Settings", "Spectrum", "Choose a live spectrum and smooth track transitions", "Quick Links: Cat Outline, Cat Halo, Aurora Bars, Aurora Wave (mirrored), Orbit, Silk Wave, or Off. Set crossfade to Off, 1.5, 3, or 5 seconds; toggle edge silence trimming."),
         new("Settings", "Local Music", "Play offline audio or change the music folder", "Open Local Music from Home, then select the desired action."),
         new("Settings", "Backup & Restore", "Export or import all saved settings", "Home. Import creates a safety backup and closes Musik after restoring."),
         new("Settings", "musik --version", "Show the application version", "Run in PowerShell or Windows Terminal outside the app."),
