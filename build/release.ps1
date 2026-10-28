@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "1.1.0",
+    [string]$Version = "2.1.0",
     [string]$Runtime = "win-x64",
     [string]$MpvSourceDirectory = ""
 )
