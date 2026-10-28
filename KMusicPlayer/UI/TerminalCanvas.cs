@@ -1,25 +1,54 @@
 namespace KMusicPlayer.UI;
 
+using System.Text;
 using KMusicPlayer.UI.Themes;
 
 public static class TerminalCanvas
 {
     public static long Version { get; private set; }
-    public static int Width => Math.Max(1, Console.WindowWidth - 1);
-    public static int Height => Math.Max(1, Console.WindowHeight);
+    private static StringBuilder? _frame;
+    private static int _frameDepth, _frameWidth, _frameHeight;
+    public static int Width => _frame is not null ? _frameWidth : Math.Max(1, Console.WindowWidth - 1);
+    public static int Height => _frame is not null ? _frameHeight : Math.Max(1, Console.WindowHeight);
+
+    // UI drawing is single-threaded. Nested panels share one viewport snapshot and one write.
+    public static IDisposable BeginFrame() => new FrameScope();
+
+    internal static void WriteRaw(string output)
+    {
+        if (_frame is not null) _frame.Append(output);
+        else Console.Write(output);
+    }
+
+    private sealed class FrameScope : IDisposable
+    {
+        private bool _disposed;
+        public FrameScope()
+        {
+            if (_frameDepth == 0)
+            {
+                _frameWidth = Math.Max(1, Console.WindowWidth - 1);
+                _frameHeight = Math.Max(1, Console.WindowHeight);
+                _frame = new StringBuilder();
+            }
+            _frameDepth++;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            if (--_frameDepth != 0) return;
+            var output = _frame!.ToString();
+            _frame = null;
+            if (output.Length > 0) Console.Write(output);
+        }
+    }
 
     public static void Clear()
     {
         Version++;
-        Console.ResetColor();
-        Console.Write("\u001b[2J\u001b[3J\u001b[H");
-        try
-        {
-            Console.SetCursorPosition(0, 0);
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-        }
+        WriteRaw("\u001b[0m\u001b[2J\u001b[3J\u001b[H");
     }
 
     public static void DrawBox(int x, int y, int width, int height, string title)
@@ -57,15 +86,20 @@ public static class TerminalCanvas
         ConsoleColor foreground,
         ConsoleColor background = ConsoleColor.Black)
     {
-        if (y < 0 || y >= Console.WindowHeight || x >= Console.WindowWidth)
+        var width = Width;
+        if (y < 0 || y >= Height || x >= width)
             return;
 
         x = Math.Max(0, x);
-        Console.SetCursorPosition(x, y);
-        Console.ForegroundColor = ThemeManager.Map(foreground);
-        Console.BackgroundColor = ThemeManager.Map(background);
-        Console.Write(Fit(text, Math.Max(0, Width - x)));
-        Console.ResetColor();
+        var fitted = Fit(text, Math.Max(0, width - x));
+        WriteRaw($"\u001b[{y + 1};{x + 1}H\u001b[{AnsiColor(ThemeManager.Map(foreground))};{AnsiColor(ThemeManager.Map(background)) + 10}m{fitted}\u001b[0m");
+    }
+
+    private static int AnsiColor(ConsoleColor color)
+    {
+        // ConsoleColor uses BGR bit order; ANSI uses RGB, with a separate bright range.
+        var value = (int)color;
+        return 30 + ((value & 1) << 2) + (value & 2) + ((value & 4) >> 2) + ((value & 8) != 0 ? 60 : 0);
     }
 
     public static string Fit(string text, int width) => TerminalText.Fit(text, width);

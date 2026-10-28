@@ -123,6 +123,8 @@ public sealed class TerminalApplication
         var renderedHeight = -1;
         var contentDirty = false;
         HomePanel? selectionDirtyPanel = null;
+        int? previousLink = null;
+        int? previousFavorite = null;
         var favorites = await SafeFavoritesAsync();
         var lastPlaybackRedraw = 0L;
 
@@ -138,7 +140,9 @@ public sealed class TerminalApplication
                     links,
                     linkSelection,
                     favoriteSelection,
-                    favorites);
+                    favorites,
+                    renderedWidth == Console.WindowWidth && renderedHeight == Console.WindowHeight
+                        ? panel == HomePanel.QuickLinks ? previousLink : previousFavorite : null);
                 selectionDirtyPanel = null;
             }
             else if (contentDirty && renderedWidth >= 0 && TerminalLayout.Fits(Width(), Height()))
@@ -168,6 +172,9 @@ public sealed class TerminalApplication
                     if (currentPanel == HomePanel.RecentFavorites && favorites.Count > 0)
                         _ = _app.WarmSelectionAsync(favorites[ClampSelection(currentFavorite, favorites.Count)]);
                 }, redrawIntervalMilliseconds: 16);
+
+            previousLink = currentLink;
+            previousFavorite = currentFavorite;
 
             switch (key.Key)
             {
@@ -525,6 +532,7 @@ public sealed class TerminalApplication
         var renderedHeight = -1;
         var contentDirty = false;
         var selectionDirty = false;
+        int? previousSelection = null;
         var expanded = !collapsible;
         var favoriteIds = (await SafeFavoritesAsync())
             .Select(track => track.Id)
@@ -532,14 +540,15 @@ public sealed class TerminalApplication
         while (true)
         {
             var visibleCount = expanded ? tracks.Count : Math.Min(5, tracks.Count);
-            var visibleTracks = tracks.Take(visibleCount).ToList();
+            IReadOnlyList<Track> visibleTracks = expanded ? tracks : tracks.Take(visibleCount).ToArray();
             selected = ClampSelection(selected, visibleTracks.Count);
             var displayTitle = collapsible
                 ? $"{title} ({visibleCount}/{tracks.Count})"
                 : title;
             if (selectionDirty && renderedWidth >= 0)
             {
-                DrawResultRows(visibleTracks, selected, favoriteIds);
+                DrawResultRows(visibleTracks, selected, favoriteIds,
+                    renderedWidth == Console.WindowWidth && renderedHeight == Console.WindowHeight ? previousSelection : null);
                 DrawStatus(TerminalLayout.PlayerTop(Height()) + 5, Width());
                 selectionDirty = false;
             }
@@ -568,6 +577,7 @@ public sealed class TerminalApplication
                     DrawNowPlaying(TerminalLayout.PlayerTop(Height()), Width());
                     if (visibleTracks.Count > 0) _ = _app.WarmSelectionAsync(visibleTracks[currentSelection]);
                 });
+            previousSelection = currentSelection;
             switch (key.Key)
             {
                 case ConsoleKey.PageUp:
@@ -624,6 +634,8 @@ public sealed class TerminalApplication
                     await ToggleFavoriteAsync(selectedTrack);
                     if (!favoriteIds.Add(selectedTrack.Id))
                         favoriteIds.Remove(selectedTrack.Id);
+                    // The same song can appear more than once in a playlist.
+                    previousSelection = null;
                     selectionDirty = true;
                     if (removeOnDelete)
                         return true;
@@ -768,8 +780,10 @@ public sealed class TerminalApplication
         IReadOnlyList<string> links,
         int linkSelection,
         int favoriteSelection,
-        IReadOnlyList<Track> favorites)
+        IReadOnlyList<Track> favorites,
+        int? previousSelected = null)
     {
+        using var frame = BeginFrame();
         var width = Width();
         var height = Height();
         var leftWidth = Math.Clamp(width / 4, 22, 30);
@@ -784,7 +798,7 @@ public sealed class TerminalApplication
         switch (panel)
         {
             case HomePanel.QuickLinks:
-                DrawQuickLinks(links, linkSelection, true, leftWidth, contentHeight);
+                DrawQuickLinks(links, linkSelection, true, leftWidth, contentHeight, previousSelected);
                 break;
             case HomePanel.RecentFavorites:
                 DrawTrackPreview(
@@ -795,7 +809,8 @@ public sealed class TerminalApplication
                     favorites,
                     favoriteSelection,
                     true,
-                    favoriteIds);
+                    favoriteIds,
+                    previousSelected);
                 break;
         }
     }
@@ -811,13 +826,15 @@ public sealed class TerminalApplication
             contentHeight - halfHeight - 2, style, _app.Spectrum);
     }
 
-    private static void DrawQuickLinks(IReadOnlyList<string> links, int selected, bool focused, int width, int height)
+    private static void DrawQuickLinks(IReadOnlyList<string> links, int selected, bool focused, int width, int height, int? previousSelected = null)
     {
         var rows = Math.Max(1, height - 2);
         var first = ListNavigation.FirstVisible(selected, links.Count, rows);
         for (var row = 0; row < rows; row++)
         {
             var index = first + row;
+            if (previousSelected is { } old && ListNavigation.FirstVisible(old, links.Count, rows) == first
+                && index != old && index != selected) continue;
             WriteMenuItem(2, 4 + row, width - 4, index < links.Count ? links[index] : "",
                 focused && index == selected);
         }
@@ -873,8 +890,10 @@ public sealed class TerminalApplication
     private static void DrawResultRows(
         IReadOnlyList<Track> tracks,
         int selected,
-        IReadOnlySet<string> favoriteIds)
+        IReadOnlySet<string> favoriteIds,
+        int? previousSelected = null)
     {
+        using var frame = BeginFrame();
         var width = Width();
         var height = Height();
         var listBottom = TerminalLayout.PlayerTop(height);
@@ -882,7 +901,7 @@ public sealed class TerminalApplication
         var first = Math.Clamp(selected - rows / 2, 0, Math.Max(0, tracks.Count - rows));
         var last = Math.Min(tracks.Count, first + rows);
 
-        for (var index = first; index < last; index++)
+        foreach (var index in ListNavigation.RowsToRedraw(selected, previousSelected, tracks.Count, rows))
         {
             var track = tracks[index];
             var y = 4 + index - first;
@@ -899,7 +918,7 @@ public sealed class TerminalApplication
         }
 
         // Deletions and shorter lists must erase rows left by the previous frame.
-        for (var row = last - first; row < rows; row++)
+        for (var row = previousSelected is null ? last - first : rows; row < rows; row++)
             WriteAt(1, 4 + row, new string(' ', Math.Max(0, width - 2)), ConsoleColor.Gray);
         if (tracks.Count == 0)
             WriteAt(2, 4, Fit("This playlist is empty. Add songs with A from Search or Local Music.", width - 4),
@@ -939,7 +958,8 @@ public sealed class TerminalApplication
         IReadOnlyList<Track> tracks,
         int selected,
         bool focused,
-        IReadOnlySet<string> favoriteIds)
+        IReadOnlySet<string> favoriteIds,
+        int? previousSelected = null)
     {
         var rows = Math.Max(1, height);
         if (tracks.Count == 0)
@@ -952,7 +972,7 @@ public sealed class TerminalApplication
 
         var first = Math.Clamp(selected - rows / 2, 0, Math.Max(0, tracks.Count - rows));
         var last = Math.Min(tracks.Count, first + rows);
-        for (var index = first; index < last; index++)
+        foreach (var index in ListNavigation.RowsToRedraw(selected, previousSelected, tracks.Count, rows))
         {
             var active = focused && index == selected;
             WriteAt(
@@ -966,7 +986,7 @@ public sealed class TerminalApplication
         }
 
         var renderedRows = last - first;
-        for (var row = renderedRows; row < rows; row++)
+        for (var row = previousSelected is null ? renderedRows : rows; row < rows; row++)
             WriteAt(x, y + row, new string(' ', Math.Max(1, width)), ConsoleColor.Gray);
     }
 
@@ -1221,8 +1241,8 @@ public sealed class TerminalApplication
 
     private static string Fit(string text, int width) => TerminalCanvas.Fit(text, width);
 
-    private static int Width() => Math.Max(1, Console.WindowWidth - 1);
-    private static int Height() => Math.Max(1, Console.WindowHeight);
+    private static int Width() => TerminalCanvas.Width;
+    private static int Height() => TerminalCanvas.Height;
 
     private enum HomePanel
     {

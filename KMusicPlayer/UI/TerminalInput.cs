@@ -63,7 +63,7 @@ public static class TerminalInput
 
             if (periodicRedraw is not null && TerminalLayout.Fits(TerminalCanvas.Width, TerminalCanvas.Height) && Environment.TickCount64 >= nextRedrawAt)
             {
-                periodicRedraw();
+                using (TerminalCanvas.BeginFrame()) periodicRedraw();
                 nextRedrawAt = Environment.TickCount64 + redrawIntervalMilliseconds;
             }
 
@@ -73,6 +73,7 @@ public static class TerminalInput
 
         void DrawCurrentSize()
         {
+            using var frame = TerminalCanvas.BeginFrame();
             if (TerminalLayout.Fits(TerminalCanvas.Width, TerminalCanvas.Height))
                 redraw();
             else

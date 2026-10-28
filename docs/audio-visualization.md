@@ -72,6 +72,13 @@ preload process cleanup is scheduled off the playback switch path, so killing an
 unrelated process cannot delay unpausing the requested song. An uncached online
 track still needs source resolution and enough received audio to play.
 
+Trailing-silence scans run only for the song actually playing. Browsing and queue
+preloads keep leading-silence removal but do not launch a second decoder to scan
+each song's tail. A new playing song cancels the previous scan and waits for its
+cleanup in the background, so tail scans stay serialized. Disabling trimming or
+stopping playback cancels the scan, including its child downloader processes.
+The scan disables caching and demuxer read-ahead to avoid buffering unrelated audio.
+
 Aurora Wave uses the same live FFT data to draw a spectral curtain mirrored above
 and below the centerline. Pixel-level symmetry, small-panel bounds, persistence,
 and selection/queue preload reuse are covered by regression checks. The audio

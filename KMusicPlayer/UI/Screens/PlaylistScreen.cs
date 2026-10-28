@@ -29,12 +29,14 @@ public sealed class PlaylistScreen
         var renderedWidth = -1;
         var renderedHeight = -1;
         var selectionDirty = false;
+        int? previousSelection = null;
         while (true)
         {
             selected = playlists.Count == 0 ? 0 : Math.Clamp(selected, 0, playlists.Count - 1);
             if (selectionDirty && renderedWidth >= 0)
             {
-                DrawLibraryRows(playlists, selected);
+                DrawLibraryRows(playlists, selected,
+                    renderedWidth == Console.WindowWidth && renderedHeight == Console.WindowHeight ? previousSelection : null);
                 selectionDirty = false;
             }
             var currentSelection = selected;
@@ -42,6 +44,7 @@ public sealed class PlaylistScreen
                 () => DrawLibrary(playlists, currentSelection),
                 ref renderedWidth,
                 ref renderedHeight);
+            previousSelection = currentSelection;
 
             switch (key.Key)
             {
@@ -114,11 +117,13 @@ public sealed class PlaylistScreen
         var width = -1;
         var height = -1;
         var selectionDirty = false;
+        int? previousSelection = null;
         while (true)
         {
             if (selectionDirty && width >= 0)
             {
-                DrawPickerRows(playlists, selected);
+                DrawPickerRows(playlists, selected,
+                    width == Console.WindowWidth && height == Console.WindowHeight ? previousSelection : null);
                 selectionDirty = false;
             }
             var current = selected;
@@ -126,6 +131,7 @@ public sealed class PlaylistScreen
                 () => DrawPlaylistPicker(playlists, current, track),
                 ref width,
                 ref height);
+            previousSelection = current;
             switch (key.Key)
             {
                 case ConsoleKey.UpArrow:
@@ -225,12 +231,13 @@ public sealed class PlaylistScreen
         DrawLibraryRows(playlists, selected);
     }
 
-    private static void DrawLibraryRows(IReadOnlyList<SavedPlaylist> playlists, int selected)
+    private static void DrawLibraryRows(IReadOnlyList<SavedPlaylist> playlists, int selected, int? previousSelected = null)
     {
+        using var frame = TerminalCanvas.BeginFrame();
         var rows = Math.Max(1, TerminalCanvas.Height - 6);
         var first = ListNavigation.FirstVisible(selected, playlists.Count, rows);
         var last = Math.Min(playlists.Count, first + rows);
-        for (var index = first; index < last; index++)
+        foreach (var index in ListNavigation.RowsToRedraw(selected, previousSelected, playlists.Count, rows))
         {
             var active = index == selected;
             var text = $"{(active ? ">" : " ")} {playlists[index].Name} ({playlists[index].Tracks.Count} tracks)";
@@ -239,7 +246,7 @@ public sealed class PlaylistScreen
                 active ? ConsoleColor.Black : ConsoleColor.Gray,
                 active ? ConsoleColor.Cyan : ConsoleColor.Black);
         }
-        for (var row = last - first; row < rows; row++)
+        for (var row = previousSelected is null ? last - first : rows; row < rows; row++)
             TerminalCanvas.WriteAt(2, 4 + row, new string(' ', Math.Max(1, TerminalCanvas.Width - 4)), ConsoleColor.Gray);
     }
 
@@ -255,12 +262,13 @@ public sealed class PlaylistScreen
         DrawPickerRows(playlists, selected);
     }
 
-    private static void DrawPickerRows(IReadOnlyList<SavedPlaylist> playlists, int selected)
+    private static void DrawPickerRows(IReadOnlyList<SavedPlaylist> playlists, int selected, int? previousSelected = null)
     {
+        using var frame = TerminalCanvas.BeginFrame();
         var rows = Math.Max(1, TerminalCanvas.Height - 6);
         var first = Math.Clamp(selected - rows / 2, 0, Math.Max(0, playlists.Count - rows));
         var last = Math.Min(playlists.Count, first + rows);
-        for (var index = first; index < last; index++)
+        foreach (var index in ListNavigation.RowsToRedraw(selected, previousSelected, playlists.Count, rows))
         {
             var active = index == selected;
             TerminalCanvas.WriteAt(2, 5 + index - first,

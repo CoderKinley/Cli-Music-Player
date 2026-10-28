@@ -57,6 +57,80 @@ internal static class AudioRegression
             if (style == SpectrumStyle.Off)
                 check(active.All(row => row.All(c => c == ' ')), "Off left spectrum pixels on screen");
         }
+        foreach (var (width, height) in new[] { (60, 12), (160, 30), (240, 50) })
+        foreach (var levels in new[]
+        {
+            Enumerable.Repeat(1d, 48).ToArray(),
+            Enumerable.Range(0, 48).Select(i => i % 2 == 0 ? 1d : 0d).ToArray()
+        })
+        {
+            var cat = SpectrumPanel.Render(width, height, SpectrumStyle.CatOutline, levels);
+            var sw = Math.Min(width * 2 - 6d, (height * 4 - 4d) * 1.9);
+            var left = (width * 2 - 1) / 2d - sw / 2;
+            for (var x = (int)Math.Ceiling(left + sw * 0.33); x <= left + sw * 0.36; x++)
+            {
+                int[] bits = [1, 8, 2, 16, 4, 32, 64, 128];
+                var count = Enumerable.Range(0, height * 4).Count(y => cat[y / 4][x / 2] >= 0x2800
+                    && ((cat[y / 4][x / 2] - 0x2800) & bits[y % 4 * 2 + x % 2]) != 0);
+                check(count is > 0 and <= 4, "Cat ear gap became disconnected or filled with beat strokes");
+            }
+        }
+        foreach (var (width, height) in new[] { (60, 12), (160, 30) })
+        {
+            var quiet = SpectrumPanel.Render(width, height, SpectrumStyle.CatHalo, []);
+            foreach (var levels in new[]
+            {
+                Enumerable.Range(0, 48).Select(i => i < 8 ? 1d : 0d).ToArray(),
+                Enumerable.Range(0, 48).Select(i => i >= 40 ? 1d : 0d).ToArray()
+            })
+            {
+                var active = SpectrumPanel.Render(width, height, SpectrumStyle.CatHalo, levels);
+                check(!quiet.Take(height / 2).SequenceEqual(active.Take(height / 2)),
+                    "Cat Halo ears did not respond to bass or treble");
+            }
+            var full = SpectrumPanel.Render(width, height, SpectrumStyle.CatHalo, Enumerable.Repeat(1d, 48).ToArray());
+            check(!quiet.Skip(height / 2).SequenceEqual(full.Skip(height / 2)),
+                "Cat Halo stopped animating the round part of the head");
+        }
+        var originalOutput = Console.Out;
+        foreach (var amplitude in new[] { 0d, 1d })
+        {
+            var halo = SpectrumPanel.Render(160, 30, SpectrumStyle.CatHalo, Enumerable.Repeat(amplitude, 48).ToArray());
+            var radius = 30 * (1 + amplitude * 0.12);
+            for (var x = (int)Math.Ceiling(159.5 + radius * 0.55); x <= 159.5 + radius * 0.65; x++)
+            for (var y = (int)Math.Ceiling(59.5 - radius * 0.92); y <= 59.5 - radius * 0.82; y++)
+            {
+                int[] bits = [1, 8, 2, 16, 4, 32, 64, 128];
+                var cell = halo[y / 4][x / 2];
+                check(cell < 0x2800 || ((cell - 0x2800) & bits[y % 4 * 2 + x % 2]) == 0,
+                    "Cat Halo drew the circular spectrum or fill inside the ear contour");
+            }
+        }
+        foreach (var (width, height) in new[] { (34, 8), (61, 19), (160, 30) })
+        foreach (var levels in new[] { Array.Empty<double>(), Enumerable.Range(0, 48).Select(i => i / 47d).ToArray() })
+        {
+            var halo = SpectrumPanel.Render(width, height, SpectrumStyle.CatHalo, levels);
+            bool Pixel(int x, int y)
+            {
+                int[] bits = [1, 8, 2, 16, 4, 32, 64, 128];
+                var cell = halo[y / 4][x / 2];
+                return cell >= 0x2800 && ((cell - 0x2800) & bits[y % 4 * 2 + x % 2]) != 0;
+            }
+            for (var y = 0; y < height * 4; y++)
+                check(Enumerable.Range(0, width).All(x => Pixel(x, y) == Pixel(width * 2 - 1 - x, y)),
+                    "Cat Halo must mirror every spectrum and ear pixel left to right");
+        }
+        using (var captured = new StringWriter())
+        {
+            try
+            {
+                Console.SetOut(captured);
+                new SpectrumPanel().Draw(0, 0, 60, 12, SpectrumStyle.CatOutline, [1d]);
+            }
+            finally { Console.SetOut(originalOutput); }
+            check(captured.ToString().Contains("\u001b[49m") && !captured.ToString().Contains("\u001b[40m"),
+                "Spectrum must use the terminal default background");
+        }
         foreach (var (width, height) in new[] { (34, 3), (60, 12), (90, 20) })
         {
             var wave = SpectrumPanel.Render(width, height, SpectrumStyle.AuroraWave,
@@ -102,8 +176,12 @@ internal static class AudioRegression
             using var player = new MpvAudioPlayer(source);
             player.Configure(new AudioPreferences(CrossfadeSeconds: 1));
             player.SetVolume(1);
+            await player.PrepareAsync(first);
+            await player.WarmSelectionAsync(highlighted);
+            check(player.SilenceScansStarted == 0, "Browsing and queue preloading started expensive tail-silence scans");
             await player.PlayAsync(first);
             await Task.Delay(650);
+            check(player.SilenceScansStarted == 1, "The playing track did not start exactly one tail-silence scan");
             var lowBands = player.Spectrum;
             Console.WriteLine($"Audio probe: elapsed={player.Elapsed.TotalSeconds:0.000}, peak band={Peak(lowBands)}, levels={string.Join(',', lowBands.Select(x => x.ToString("0.00")))}");
             Console.WriteLine($"Spectrum backend: {player.SpectrumBackend}");
@@ -122,6 +200,8 @@ internal static class AudioRegression
             player.TogglePause();
             await player.PrepareAsync(second);
             await player.WarmSelectionAsync(highlighted);
+            check(player.SilenceScansStarted == 1, "Browsing during playback launched additional silence decoders");
+            Console.WriteLine($"Silence scans: 0 while preloading, {player.SilenceScansStarted} for the playing track after browsing.");
             var wait = Stopwatch.StartNew();
             while (!player.ShouldTransition && player.IsPlaying && wait.Elapsed < TimeSpan.FromSeconds(8))
             {
@@ -161,8 +241,10 @@ internal static class AudioRegression
             player.Stop();
             check(!player.IsPlaying && player.Spectrum.Count == 0, "Stop left audio or spectrum active");
             player.Configure(new AudioPreferences(TrimSilence: false, CrossfadeSeconds: 0));
+            var scansBeforeUntrimmedPlayback = player.SilenceScansStarted;
             await player.PlayAsync(first);
             await Task.Delay(250);
+            check(player.SilenceScansStarted == scansBeforeUntrimmedPlayback, "Disabling trimming still started a tail-silence scan");
             check(player.Elapsed.TotalSeconds < 0.8 && player.Spectrum.All(value => value == 0),
                 "Disabling trimming did not preserve the leading silence");
             check(!player.ShouldTransition, "Disabled crossfade triggered before the original track ending");

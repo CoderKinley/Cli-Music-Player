@@ -7,6 +7,11 @@ using KMusicPlayer.UI.Screens;
 using KMusicPlayer.UI.Themes;
 
 Console.OutputEncoding = Encoding.UTF8;
+if (args.Contains("--navigation-probe"))
+{
+    NavigationProbe.Run(args.Contains("--long"));
+    return;
+}
 if (args.Contains("--spectrum-preview"))
 {
     var levels = new double[] { 0.8, 0.95, 0.6, 0.35, 0.7, 0.5, 0.4, 0.65, 0.3, 0.45, 0.2, 0.1 };
@@ -47,6 +52,8 @@ void Check(bool condition, string description)
         throw new Exception(description);
     checks++;
 }
+
+TerminalRenderingRegression.Run(Check);
 
 foreach (var theme in new[] { TerminalTheme.Spotify, TerminalTheme.SoundCloud })
 {
@@ -179,6 +186,26 @@ Check(ListNavigation.Page(0, 0, 10, 1) == 0, "Paging an empty list must be safe"
 Check(ListNavigation.Page(15, 20, 10, 1) == 19, "Page down did not clamp to the final song");
 Check(ListNavigation.Page(5, 20, 10, -1) == 0, "Page up did not clamp to the first song");
 Check(ListNavigation.FirstVisible(19, 20, 5) == 15, "Last-page scrolling must keep the selection visible");
+Check(ListNavigation.RowsToRedraw(1, 0, 20, 10).SequenceEqual(new[] { 0, 1 }),
+    "Moving the highlight repainted unchanged rows");
+Check(ListNavigation.RowsToRedraw(1, 1, 20, 10).SequenceEqual(new[] { 1 }),
+    "Updating a selected row lost its favorite/content change");
+Check(!ListNavigation.RowsToRedraw(0, null, 0, 10).Any(), "Empty-list navigation produced a row");
+foreach (var count in new[] { 1, 8, 30 })
+foreach (var rows in new[] { 1, 5, 20 })
+foreach (var old in Enumerable.Range(0, count))
+foreach (var selected in Enumerable.Range(0, count))
+{
+    var oldFirst = ListNavigation.FirstVisible(old, count, rows);
+    var first = ListNavigation.FirstVisible(selected, count, rows);
+    var cells = Enumerable.Range(oldFirst, Math.Min(count - oldFirst, rows))
+        .Select(index => (Index: index, Selected: index == old)).ToArray();
+    foreach (var index in ListNavigation.RowsToRedraw(selected, old, count, rows))
+        cells[index - first] = (index, index == selected);
+    Check(cells.SequenceEqual(Enumerable.Range(first, Math.Min(count - first, rows))
+        .Select(index => (Index: index, Selected: index == selected))),
+        "Incremental list navigation differs from a full repaint after scrolling or wrapping");
+}
 
 var testDirectory = Path.Combine(Path.GetTempPath(), "Musik-Regression-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(testDirectory);

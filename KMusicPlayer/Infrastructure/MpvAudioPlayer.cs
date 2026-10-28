@@ -21,6 +21,10 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
     private Track? _track;
     private bool _disposed;
     private readonly ProcessAudioSpectrum? _outputSpectrum;
+    private long _silenceScansStarted;
+    private CancellationTokenSource? _silenceScanCancellation;
+    private Task _silenceScanWork = Task.CompletedTask;
+    public long SilenceScansStarted => Interlocked.Read(ref _silenceScansStarted);
 
     public MpvAudioPlayer(IMusicSource musicSource)
     {
@@ -73,7 +77,15 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
     {
         var trimChanged = _preferences.TrimSilence != preferences.TrimSilence;
         _preferences = preferences.Normalize();
-        if (trimChanged) lock (_sync) CancelPreparation();
+        if (trimChanged)
+        {
+            lock (_sync)
+            {
+                CancelPreparation(deferDisposal: true);
+                CancelSilenceScan();
+                if (_current is { IsAlive: true } current) StartSilenceScan(current);
+            }
+        }
     }
 
     public Task PrepareAsync(Track track, CancellationToken cancellationToken = default) =>
@@ -95,7 +107,7 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
         {
             if (_disposed || slot.Voice?.Track.Id == track.Id) return Task.CompletedTask;
             if (slot.TrackId == track.Id && slot.Work is not null) return slot.Work;
-            slot.Reset();
+            slot.Reset(deferDisposal: true);
             slot.TrackId = track.Id;
             slot.Work = PrepareCoreAsync(slot, track, debounce, slot.Cancellation.Token, cancellationToken);
             return slot.Work;
@@ -181,6 +193,7 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
         next.PlaybackStart = next.Position;
         _current = next;
         _track = track;
+        StartSilenceScan(next);
         if (previous?.Paused == true || previous?.IsAlive != true)
         {
             previous?.Dispose();
@@ -253,7 +266,11 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
     public void Stop()
     {
         _fade.Cancel();
-        lock (_sync) CancelPreparation();
+        lock (_sync)
+        {
+            CancelSilenceScan();
+            CancelPreparation();
+        }
         _outgoing?.Dispose();
         _outgoing = null;
         _current?.Dispose();
@@ -267,7 +284,11 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
         _fade.Cancel();
         _fade.Dispose();
         _fade = new CancellationTokenSource();
-        lock (_sync) CancelPreparation();
+        lock (_sync)
+        {
+            CancelSilenceScan();
+            CancelPreparation();
+        }
         _ = FinishCoreAsync(voice, _fade.Token);
     }
 
@@ -298,18 +319,8 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
 
     private void CancelPreparation(bool deferDisposal = false)
     {
-        if (deferDisposal)
-        {
-            // Process-tree cleanup can be slow. It must not stand between Enter and unpausing audio.
-            var queued = _queued.Voice;
-            var selection = _selection.Voice;
-            _queued.Voice = null;
-            _selection.Voice = null;
-            if (queued is not null) _ = Task.Run(queued.Dispose);
-            if (selection is not null) _ = Task.Run(selection.Dispose);
-        }
-        _queued.Reset();
-        _selection.Reset();
+        _queued.Reset(deferDisposal);
+        _selection.Reset(deferDisposal);
     }
 
     private async Task<Voice> CreateVoiceAsync(Track track, TimeSpan? startPosition, CancellationToken token)
@@ -330,7 +341,7 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
         info.ArgumentList.Add("--demuxer-readahead-secs=10");
         info.ArgumentList.Add($"--af=@kmusic:lavfi=[{AudioAnalysis.CreateFilter(_preferences.TrimSilence && startPosition is not { TotalSeconds: > 0 })}]");
         if (startPosition is { TotalSeconds: > 0 }) info.ArgumentList.Add($"--start={Number(startPosition.Value.TotalSeconds)}");
-        var voice = new Voice(track);
+        var voice = new Voice(track, source);
         try
         {
             voice.Process = Process.Start(info) ?? throw new InvalidOperationException("mpv could not be started.");
@@ -338,7 +349,6 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
             voice.ReadOutput();
             await voice.ConnectAsync(pipeName, token);
             await voice.Ready.Task.WaitAsync(TimeSpan.FromSeconds(30), token);
-            if (_preferences.TrimSilence) _ = ProbeTailAsync(voice, source);
             return voice;
         }
         catch { voice.Dispose(); throw; }
@@ -360,23 +370,60 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
         return info;
     }
 
-    private async Task ProbeTailAsync(Voice voice, string source)
+    private void StartSilenceScan(Voice voice)
+    {
+        lock (_sync)
+        {
+            CancelSilenceScan();
+            if (!_preferences.TrimSilence || voice.Duration <= 1) return;
+            _silenceScanCancellation = CancellationTokenSource.CreateLinkedTokenSource(voice.Lifetime.Token);
+            var token = _silenceScanCancellation.Token;
+            var previous = _silenceScanWork;
+            // Only the playing song needs a tail scan. Wait for obsolete scan cleanup
+            // before starting another decoder, without holding up playback or navigation.
+            _silenceScanWork = Task.Run(async () =>
+            {
+                await previous.ConfigureAwait(false);
+                if (!token.IsCancellationRequested) await ProbeTailAsync(voice, token).ConfigureAwait(false);
+            });
+        }
+    }
+
+    // Called under _sync; cancellation callbacks and process cleanup never run on the UI thread.
+    private void CancelSilenceScan()
+    {
+        var cancellation = _silenceScanCancellation;
+        _silenceScanCancellation = null;
+        if (cancellation is not null) _ = CancelAndDisposeAsync(cancellation);
+    }
+
+    private static async Task CancelAndDisposeAsync(CancellationTokenSource cancellation)
+    {
+        try { await cancellation.CancelAsync().ConfigureAwait(false); }
+        finally { cancellation.Dispose(); }
+    }
+
+    private async Task ProbeTailAsync(Voice voice, CancellationToken token)
     {
         Process? probe = null;
         try
         {
             var duration = voice.Duration;
             if (duration <= 1) return;
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(voice.Lifetime.Token);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
             timeout.CancelAfter(TimeSpan.FromSeconds(25));
-            var info = CreateStartInfo(source);
+            var info = CreateStartInfo(voice.Source);
             info.ArgumentList.Add("--ao=null");
             info.ArgumentList.Add("--ao-null-untimed=yes");
             info.ArgumentList.Add("--untimed");
+            info.ArgumentList.Add("--cache=no");
+            info.ArgumentList.Add("--demuxer-readahead-secs=0");
             info.ArgumentList.Add($"--start={Number(Math.Max(0, duration - 30))}");
             info.ArgumentList.Add("--af=lavfi=[silencedetect=noise=-55dB:d=0.15,ametadata=print:file=-:direct=1]");
+            timeout.Token.ThrowIfCancellationRequested();
             probe = Process.Start(info);
             if (probe is null) return;
+            Interlocked.Increment(ref _silenceScansStarted);
             _childProcesses.Track(probe);
             var errors = probe.StandardError.ReadToEndAsync(timeout.Token);
             double? silenceStart = null;
@@ -388,6 +435,7 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
             }
             await probe.WaitForExitAsync(timeout.Token);
             await errors;
+            token.ThrowIfCancellationRequested();
             if (probe.ExitCode == 0 && silenceStart is > 0 && silenceStart < duration - 0.15)
                 voice.TrimmedEnd = Math.Max(0.1, silenceStart.Value - 0.025);
         }
@@ -396,7 +444,8 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
         {
             if (probe is not null)
             {
-                try { if (!probe.HasExited) probe.Kill(); } catch (InvalidOperationException) { }
+                try { if (!probe.HasExited) probe.Kill(entireProcessTree: true); }
+                catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception) { }
                 probe.Dispose();
             }
         }
@@ -421,26 +470,42 @@ public sealed class MpvAudioPlayer : IAudioPlayer, IDisposable
         public Task? Work;
         public CancellationTokenSource Cancellation = new();
         public TaskCompletionSource PlayRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public void Reset()
+        public void Reset(bool deferDisposal = false)
         {
-            Cancellation.Cancel();
-            Cancellation.Dispose();
+            var cancellation = Cancellation;
+            var voice = Voice;
             Cancellation = new CancellationTokenSource();
-            Voice?.Dispose();
             Voice = null;
             Work = null;
             TrackId = null;
             PlayRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (deferDisposal)
+            {
+                // CancelAsync marks the old token immediately, keeping stale work from
+                // publishing into this slot. Callbacks and process cleanup stay off the UI thread.
+                var cancelled = cancellation.CancelAsync();
+                _ = Task.Run(async () =>
+                {
+                    try { await cancelled.ConfigureAwait(false); }
+                    finally { cancellation.Dispose(); voice?.Dispose(); }
+                });
+            }
+            else
+            {
+                try { cancellation.Cancel(); }
+                finally { cancellation.Dispose(); voice?.Dispose(); }
+            }
         }
     }
 
-    private sealed class Voice(Track track) : IDisposable
+    private sealed class Voice(Track track, string source) : IDisposable
     {
         private readonly object _writeLock = new();
         private NamedPipeClientStream? _pipe;
         private StreamWriter? _writer;
         private int _disposed;
         public Track Track { get; } = track;
+        public string Source { get; } = source;
         public Process? Process { get; set; }
         public CancellationTokenSource Lifetime { get; } = new();
         public TaskCompletionSource Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

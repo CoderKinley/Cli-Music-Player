@@ -55,6 +55,7 @@ public sealed class ThemesScreen
 
     private static void DrawOptions(IReadOnlyList<TerminalTheme> themes, int selected)
     {
+        using var frame = TerminalCanvas.BeginFrame();
         for (var index = 0; index < themes.Count; index++)
         {
             var active = index == selected;

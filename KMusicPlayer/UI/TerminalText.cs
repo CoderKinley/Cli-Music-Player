@@ -6,12 +6,19 @@ namespace KMusicPlayer.UI;
 /// <summary>Measures and clips text in terminal cells without splitting grapheme clusters.</summary>
 public static class TerminalText
 {
-    public static int Width(string text) => Elements(text).Sum(element => CellWidth(element));
+    public static int Width(string text) => IsPlainAscii(text) ? text.Length : Elements(text).Sum(element => CellWidth(element));
+
+    private static bool IsPlainAscii(string text) => text.AsSpan().IndexOfAnyExceptInRange(' ', '~') < 0;
 
     public static string Fit(string text, int width)
     {
         if (width <= 0)
             return string.Empty;
+
+        // Most list text is plain ASCII. Avoid allocating a string for every character
+        // on every arrow-key repeat; Unicode and terminal controls use the grapheme path.
+        if (IsPlainAscii(text))
+            return text.Length <= width ? text : width > 3 ? text[..(width - 3)] + "..." : text[..width];
 
         var elements = Elements(text).ToList();
         if (elements.Sum(CellWidth) <= width)

@@ -57,11 +57,11 @@ public sealed class SpectrumPanel
                 do { column++; }
                 while (column < width && column * 12 / width == stripe && (old is null || old[column] != frame[row][column]));
                 var (r, g, b) = Color(stripe / 11d);
-                output.Append($"\u001b[{y + row + 1};{x + start + 1}H\u001b[38;2;{r};{g};{b}m\u001b[40m");
+                output.Append($"\u001b[{y + row + 1};{x + start + 1}H\u001b[38;2;{r};{g};{b}m\u001b[49m");
                 output.Append(frame[row].AsSpan(start, column - start));
             }
         }
-        if (output.Length > 0) Console.Write(output.Append("\u001b[0m").ToString());
+        if (output.Length > 0) TerminalCanvas.WriteRaw(output.Append("\u001b[0m").ToString());
         _previous = frame;
     }
 
@@ -111,9 +111,9 @@ public sealed class SpectrumPanel
         {
             (double X, double Y)[][] curves =
             [
-                [(0.12, 0.86), (0.12, 0.12), (0.27, 0.02), (0.30, 0.42)],
-                [(0.30, 0.42), (0.32, 0.37), (0.36, 0.37), (0.39, 0.42)],
-                [(0.39, 0.42), (0.42, 0.02), (0.53, 0.05), (0.56, 0.51)],
+                [(0.12, 0.86), (0.12, 0.12), (0.27, 0.02), (0.30, 0.34)],
+                [(0.30, 0.34), (0.315, 0.40), (0.375, 0.40), (0.39, 0.34)],
+                [(0.39, 0.34), (0.42, 0.02), (0.53, 0.05), (0.56, 0.51)],
                 [(0.56, 0.51), (0.77, 0.48), (0.84, 0.57), (0.90, 0.85)],
                 [(0.90, 0.85), (0.93, 0.86), (0.96, 0.83), (0.99, 0.84)]
             ];
@@ -122,9 +122,19 @@ public sealed class SpectrumPanel
             var left = cx - sw / 2;
             var top = cy - sh / 2;
             foreach (var c in curves)
-                for (var i = 0; i <= 160; i++)
+            {
+                // Sample by pixel length so large panels retain a continuous outline.
+                var polygonLength = 0d;
+                for (var point = 1; point < c.Length; point++)
+                    polygonLength += Math.Sqrt(Math.Pow((c[point].X - c[point - 1].X) * sw, 2)
+                        + Math.Pow((c[point].Y - c[point - 1].Y) * sh, 2));
+                var steps = Math.Max(16, (int)Math.Ceiling(polygonLength * 2));
+                (double X, double Y)? previous = null;
+                var strokeDistance = 2d;
+                (double X, double Y)? previousBase = null;
+                for (var i = 0; i <= steps; i++)
                 {
-                    var t = i / 160d;
+                    var t = i / (double)steps;
                     var u = 1 - t;
                     var x = u * u * u * c[0].X + 3 * u * u * t * c[1].X + 3 * u * t * t * c[2].X + t * t * t * c[3].X;
                     var y = u * u * u * c[0].Y + 3 * u * u * t * c[1].Y + 3 * u * t * t * c[2].Y + t * t * t * c[3].Y;
@@ -134,40 +144,133 @@ public sealed class SpectrumPanel
                     var length = Math.Max(0.001, Math.Sqrt(dx * dx * sw * sw + dy * dy * sh * sh));
                     var nx = dy * sh / length;
                     var ny = -dx * sw / length;
-                    var motion = energy * sh * 0.07;
-                    Dot(left + x * sw + nx * motion, top + y * sh + ny * motion);
-                    if (i % 4 == 0)
-                        Line(left + x * sw, top + y * sh, left + x * sw + nx * energy * sh * 0.32,
-                            top + y * sh + ny * energy * sh * 0.32);
+                    // Fade strokes out on the inner ears: their normals converge in the gap.
+                    var clearance = Math.Clamp((Math.Abs(x - 0.345) - 0.055) / 0.065, 0, 1);
+                    clearance = clearance * clearance * (3 - 2 * clearance);
+                    var motion = energy * sh * (0.012 + clearance * 0.058);
+                    var baseX = left + x * sw;
+                    var baseY = top + y * sh;
+                    var drawX = baseX + nx * motion;
+                    var drawY = baseY + ny * motion;
+                    if (previous is { } p) Line(p.X, p.Y, drawX, drawY);
+                    else Dot(drawX, drawY);
+                    previous = (drawX, drawY);
+                    if (previousBase is { } b)
+                        strokeDistance += Math.Sqrt(Math.Pow(baseX - b.X, 2) + Math.Pow(baseY - b.Y, 2));
+                    previousBase = (baseX, baseY);
+                    if (strokeDistance >= 2)
+                    {
+                        if (clearance > 0)
+                            Line(baseX, baseY, baseX + nx * energy * sh * 0.32 * clearance,
+                                baseY + ny * energy * sh * 0.32 * clearance);
+                        strokeDistance %= 2;
+                    }
                 }
+            }
         }
         else if (style is SpectrumStyle.CatHalo or SpectrumStyle.Orbit)
         {
+            var mirrored = style == SpectrumStyle.CatHalo;
+            void HaloDot(double x, double y)
+            {
+                // Reflect the rasterized pixel, avoiding rounding differences between sides.
+                var pixelX = (int)Math.Round(x);
+                Dot(pixelX, y);
+                if (mirrored) Dot(pw - 1 - pixelX, y);
+            }
+            void HaloLine(double x1, double y1, double x2, double y2)
+            {
+                var steps = Math.Max(1, (int)Math.Ceiling(Math.Max(Math.Abs(x2 - x1), Math.Abs(y2 - y1)) * 2));
+                for (var i = 0; i <= steps; i++)
+                    HaloDot(x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps);
+            }
             var bass = Enumerable.Range(0, 8).Average(i => Level(i / 48d));
             var radius = Math.Max(1, Math.Min(pw * 0.29, ph * 0.25)) * (1 + bass * 0.12);
-            for (var i = 0; i < 280; i++)
+            (double X, double Y)? previousOutline = null;
+            (double X, double Y)? previousInner = null;
+            var outlineStrokeDistance = 2d;
+            for (var i = 0; i <= (mirrored ? 140 : 280); i++)
             {
                 var angle = i * Math.Tau / 280 - Math.PI / 2;
-                var energy = Level(Math.Abs(i / 140d - 1));
-                var r = radius * (1 + energy * 0.14);
-                Dot(cx + Math.Cos(angle) * r, cy + Math.Sin(angle) * r);
-                if (i % 4 == 0)
-                    Line(cx + Math.Cos(angle) * (r + 1), cy + Math.Sin(angle) * (r + 1),
-                        cx + Math.Cos(angle) * (r + 1 + radius * energy * 0.65), cy + Math.Sin(angle) * (r + 1 + radius * energy * 0.65));
-                if (style == SpectrumStyle.Orbit)
-                    Dot(cx + Math.Cos(angle) * radius * 0.7, cy + Math.Sin(angle) * radius * 0.7);
-            }
-            if (style == SpectrumStyle.CatHalo)
-                foreach (var side in new[] { -1, 1 })
+                // The ears replace this part of the circular contour.
+                if (mirrored && angle > -1.30 && angle < -0.66)
                 {
-                    var x1 = cx + side * radius * 0.78;
-                    var x2 = cx + side * radius * 0.80;
-                    var x3 = cx + side * radius * 0.27;
-                    var y1 = cy - radius * 0.61;
+                    previousOutline = null;
+                    outlineStrokeDistance = 2d;
+                    continue;
+                }
+                var band = Math.Abs(i / 140d - 1);
+                var energy = Level(mirrored ? 1 - band : band);
+                var r = radius * (1 + energy * 0.14);
+                var x = cx + Math.Cos(angle) * r;
+                var y = cy + Math.Sin(angle) * r;
+                if (previousOutline is { } p)
+                {
+                    HaloLine(p.X, p.Y, x, y);
+                    outlineStrokeDistance += Math.Sqrt((x - p.X) * (x - p.X) + (y - p.Y) * (y - p.Y));
+                }
+                else HaloDot(x, y);
+                previousOutline = (x, y);
+                // Keep stroke density consistent with the ears at every panel size.
+                if (outlineStrokeDistance >= 2)
+                {
+                    HaloLine(cx + Math.Cos(angle) * (r + 1), cy + Math.Sin(angle) * (r + 1),
+                        cx + Math.Cos(angle) * (r + 1 + radius * energy * 0.65), cy + Math.Sin(angle) * (r + 1 + radius * energy * 0.65));
+                    outlineStrokeDistance %= 2;
+                }
+                if (style == SpectrumStyle.Orbit)
+                {
+                    var innerX = cx + Math.Cos(angle) * radius * 0.7;
+                    var innerY = cy + Math.Sin(angle) * radius * 0.7;
+                    if (previousInner is { } inner) Line(inner.X, inner.Y, innerX, innerY);
+                    else Dot(innerX, innerY);
+                    previousInner = (innerX, innerY);
+                }
+            }
+            if (mirrored)
+                {
+                    (double X, double Y) Attachment(double angle)
+                    {
+                        var r = radius * (1 + Level((angle + Math.PI / 2) / Math.PI) * 0.14);
+                        return (cx + Math.Cos(angle) * r, cy + Math.Sin(angle) * r);
+                    }
+                    var (x1, y1) = Attachment(-0.66);
+                    var (x3, y3) = Attachment(-1.30);
+                    var x2 = cx + radius * 0.80 * (1 + bass * 0.14);
                     var y2 = cy - radius * (1.45 + bass * 0.28);
-                    var y3 = cy - radius * 0.98;
-                    Line(x1, y1, x2, y2); Line(x2, y2, x3, y3);
-                    Line(x1 + side * 2, y1 - 1, x2 + side, y2 + 3);
+                    // Deform the ear contour itself, then grow bars from that live surface.
+                    void EarSpectrum(double ax, double ay, double bx, double by, bool startsAtTip)
+                    {
+                        var dx = bx - ax;
+                        var dy = by - ay;
+                        var length = Math.Sqrt(dx * dx + dy * dy);
+                        var steps = Math.Max(1, (int)Math.Ceiling(length * 2));
+                        (double X, double Y)? previous = null;
+                        var strokeDistance = 2d;
+                        for (var i = 0; i <= steps; i++)
+                        {
+                            var t = i / (double)steps;
+                            var energy = Level(startsAtTip ? t : 1 - t);
+                            var motion = radius * energy * 0.14 * Math.Sin(Math.PI * t);
+                            var x = ax + dx * t - dy / length * motion;
+                            var y = ay + dy * t + dx / length * motion;
+                            if (previous is { } p)
+                            {
+                                HaloLine(p.X, p.Y, x, y);
+                                strokeDistance += Math.Sqrt((x - p.X) * (x - p.X) + (y - p.Y) * (y - p.Y));
+                            }
+                            else HaloDot(x, y);
+                            previous = (x, y);
+                            if (strokeDistance >= 2)
+                            {
+                                var extension = radius * energy * 0.65;
+                                HaloLine(x, y, x - dy / length * extension, y + dx / length * extension);
+                                strokeDistance %= 2;
+                            }
+                        }
+                    }
+                    EarSpectrum(x1, y1, x2, y2, false);
+                    EarSpectrum(x2, y2, x3, y3, true);
                 }
         }
         else if (style == SpectrumStyle.AuroraBars)
@@ -203,7 +306,11 @@ public sealed class SpectrumPanel
                 {
                     var steps = Math.Max(2, (int)Math.Ceiling(Math.Abs(top - previousTop) * 2));
                     for (var step = 0; step <= steps; step++)
-                        MirrorDot(x - 1 + step / (double)steps, previousTop + (top - previousTop) * step / steps);
+                    {
+                        var lineY = previousTop + (top - previousTop) * step / steps;
+                        MirrorDot(x - 1 + step / (double)steps, lineY);
+                        MirrorDot(x - 1 + step / (double)steps, cy + (lineY - cy) * 0.58);
+                    }
                 }
                 if (x % 3 == 0)
                     for (var y = (int)Math.Round(top); y <= cy; y++) MirrorDot(x, y);
@@ -214,12 +321,18 @@ public sealed class SpectrumPanel
         else if (style == SpectrumStyle.SilkWave)
         {
             for (var layer = 0; layer < 3; layer++)
+            {
+                var previousY = cy;
                 for (var x = 2; x < pw - 2; x++)
                 {
                     var t = (x - 2d) / Math.Max(1, pw - 5);
                     var envelope = Level(t) * Math.Sin(t * Math.PI);
-                    Dot(x, cy + Math.Sin(t * Math.Tau * (2 + layer) + layer * 0.8) * envelope * ph * (0.32 - layer * 0.07));
+                    var y = cy + Math.Sin(t * Math.Tau * (2 + layer) + layer * 0.8) * envelope * ph * (0.32 - layer * 0.07);
+                    if (x > 2) Line(x - 1, previousY, x, y);
+                    else Dot(x, y);
+                    previousY = y;
                 }
+            }
         }
         return Enumerable.Range(0, height).Select(row => new string(Enumerable.Range(0, width)
             .Select(col => dots[row * width + col] == 0 ? ' ' : (char)(0x2800 + dots[row * width + col])).ToArray())).ToArray();

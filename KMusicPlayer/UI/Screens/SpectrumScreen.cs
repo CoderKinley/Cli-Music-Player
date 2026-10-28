@@ -73,6 +73,7 @@ public sealed class SpectrumScreen(MusicApplication music)
 
     private void DrawOptions(int selected)
     {
+        using var frame = TerminalCanvas.BeginFrame();
         var styles = Enum.GetValues<SpectrumStyle>();
         var leftWidth = Math.Min(31, TerminalCanvas.Width / 2) - 3;
         for (var index = 0; index < styles.Length + 2; index++)
