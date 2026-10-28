@@ -92,7 +92,10 @@ public static class TerminalCanvas
 
         x = Math.Max(0, x);
         var fitted = Fit(text, Math.Max(0, width - x));
-        WriteRaw($"\u001b[{y + 1};{x + 1}H\u001b[{AnsiColor(ThemeManager.Map(foreground))};{AnsiColor(ThemeManager.Map(background)) + 10}m{fitted}\u001b[0m");
+        // Black denotes ordinary/unfilled areas throughout the UI. Let the terminal
+        // supply their background, while preserving colored selection/progress fills.
+        var backgroundCode = background == ConsoleColor.Black ? 49 : AnsiColor(ThemeManager.Map(background)) + 10;
+        WriteRaw($"\u001b[{y + 1};{x + 1}H\u001b[{AnsiColor(ThemeManager.Map(foreground))};{backgroundCode}m{fitted}\u001b[0m");
     }
 
     private static int AnsiColor(ConsoleColor color)
